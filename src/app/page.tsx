@@ -1,10 +1,17 @@
 import { auth, signOut } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { db } from "@/lib/db";
-import { plaidItems, transactions } from "@/lib/db/schema";
+import {
+  plaidItems,
+  splitwiseCredentials,
+  splitwiseExpenses,
+  transactions,
+} from "@/lib/db/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { ConnectBankButton } from "@/components/connect-bank-button";
 import { SyncButton } from "@/components/sync-button";
+import { ConnectSplitwiseButton } from "@/components/connect-splitwise-button";
+import { SyncSplitwiseButton } from "@/components/sync-splitwise-button";
 
 export default async function Home() {
   const session = await auth();
@@ -16,11 +23,26 @@ export default async function Home() {
     .from(plaidItems)
     .where(eq(plaidItems.userId, user.id));
 
-  const [{ count }] = await db
+  const [{ count: txnCount }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(transactions)
     .where(
       and(eq(transactions.userId, user.id), isNull(transactions.deletedAt)),
+    );
+
+  const [swCred] = await db
+    .select()
+    .from(splitwiseCredentials)
+    .where(eq(splitwiseCredentials.userId, user.id));
+
+  const [{ count: swCount }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(splitwiseExpenses)
+    .where(
+      and(
+        eq(splitwiseExpenses.userId, user.id),
+        isNull(splitwiseExpenses.deletedAt),
+      ),
     );
 
   return (
@@ -47,29 +69,60 @@ export default async function Home() {
       </section>
 
       <section className="mt-12">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Bank
+        </h2>
         {items.length === 0 ? (
-          <div>
+          <div className="mt-3">
             <p className="text-muted-foreground">
-              Start by connecting a bank account.
+              Connect a bank account to import transactions.
             </p>
             <div className="mt-4">
               <ConnectBankButton />
             </div>
           </div>
         ) : (
-          <div>
+          <div className="mt-3">
             <p className="text-muted-foreground">
               {items.length} bank{items.length > 1 ? "s" : ""} connected ·{" "}
-              {count} transaction{count === 1 ? "" : "s"} synced
+              {txnCount} transaction{txnCount === 1 ? "" : "s"} synced
             </p>
-            <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
+            <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
               {items.map((it) => (
                 <li key={it.id}>• {it.institutionName ?? "Connected bank"}</li>
               ))}
             </ul>
-            <div className="mt-6 flex flex-wrap gap-3">
+            <div className="mt-4 flex flex-wrap gap-3">
               <SyncButton />
               <ConnectBankButton variant="outline" />
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Splitwise
+        </h2>
+        {!swCred ? (
+          <div className="mt-3">
+            <p className="text-muted-foreground">
+              Link Splitwise to factor in shared costs and reimbursements.
+            </p>
+            <div className="mt-4">
+              <ConnectSplitwiseButton />
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3">
+            <p className="text-muted-foreground">
+              Connected · {swCount} expense{swCount === 1 ? "" : "s"} synced
+              {swCred.lastSyncedAt
+                ? ` · last sync ${swCred.lastSyncedAt.toLocaleString()}`
+                : ""}
+            </p>
+            <div className="mt-4">
+              <SyncSplitwiseButton />
             </div>
           </div>
         )}
