@@ -13,6 +13,16 @@ import { ConnectBankButton } from "@/components/connect-bank-button";
 import { SyncButton } from "@/components/sync-button";
 import { ConnectSplitwiseButton } from "@/components/connect-splitwise-button";
 import { SyncSplitwiseButton } from "@/components/sync-splitwise-button";
+import { plaidEnv } from "@/lib/plaid/client";
+import { cn } from "@/lib/utils";
+
+const PLAID_ENV_STYLES: Record<string, string> = {
+  sandbox: "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200",
+  development:
+    "bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-200",
+  production:
+    "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200",
+};
 
 export default async function AccountsPage() {
   const session = await auth();
@@ -75,9 +85,20 @@ export default async function AccountsPage() {
       </p>
 
       <section className="mt-12">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Bank
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Bank
+          </h2>
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider",
+              PLAID_ENV_STYLES[plaidEnv] ?? PLAID_ENV_STYLES.sandbox,
+            )}
+            title={`Plaid environment: ${plaidEnv}`}
+          >
+            {plaidEnv}
+          </span>
+        </div>
         {items.length === 0 ? (
           <div className="mt-3">
             <p className="text-muted-foreground">
@@ -93,9 +114,18 @@ export default async function AccountsPage() {
               {items.length} bank{items.length > 1 ? "s" : ""} connected ·{" "}
               {txnCount} transaction{txnCount === 1 ? "" : "s"} synced
             </p>
-            <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+            <ul className="mt-2 space-y-1 text-sm">
               {items.map((it) => (
-                <li key={it.id}>• {it.institutionName ?? "Connected bank"}</li>
+                <li key={it.id} className="text-muted-foreground">
+                  <span>• {it.institutionName ?? "Connected bank"}</span>
+                  {it.errorCode && (
+                    <span className="ml-2 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[11px] font-medium text-destructive">
+                      {it.errorCode === "ITEM_LOGIN_REQUIRED"
+                        ? "Re-auth required"
+                        : it.errorCode}
+                    </span>
+                  )}
+                </li>
               ))}
             </ul>
             <div className="mt-4 flex flex-wrap gap-3">
