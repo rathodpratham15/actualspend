@@ -95,6 +95,8 @@ export const plaidItems = pgTable("plaid_item", {
 });
 
 // One row per user. Splitwise OAuth2 tokens.
+// Splitwise tokens don't expire by default — refresh_token / expires_at are
+// kept on the schema for forward-compat but typically null.
 export const splitwiseCredentials = pgTable("splitwise_credential", {
   userId: text("user_id")
     .primaryKey()
@@ -103,6 +105,8 @@ export const splitwiseCredentials = pgTable("splitwise_credential", {
   refreshToken: text("refresh_token"),
   expiresAt: timestamp("expires_at"),
   splitwiseUserId: integer("splitwise_user_id"),
+  // Watermark for incremental sync: feed into `updated_after` on next pull.
+  lastSyncedAt: timestamp("last_synced_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

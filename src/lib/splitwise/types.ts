@@ -1,0 +1,31 @@
+// Minimal shape of the Splitwise REST API responses we care about.
+// Splitwise returns numbers as strings (e.g. "12.50"), so keep them as strings.
+
+export type SplitwiseUser = {
+  id: number;
+  first_name: string;
+  last_name: string | null;
+  email: string;
+};
+
+export type SplitwiseExpenseUser = {
+  user_id: number;
+  paid_share: string;
+  owed_share: string;
+  net_balance: string;
+};
+
+export type SplitwiseExpense = {
+  id: number;
+  description: string | null;
+  cost: string;
+  currency_code: string;
+  date: string; // ISO timestamp
+  group_id: number | null;
+  users: SplitwiseExpenseUser[];
+  updated_at: string;
+  deleted_at: string | null;
+};
+
+export type GetCurrentUserResponse = { user: SplitwiseUser };
+export type GetExpensesResponse = { expenses: SplitwiseExpense[] };
