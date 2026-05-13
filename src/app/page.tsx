@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { auth, signOut } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { db } from "@/lib/db";
@@ -104,6 +105,7 @@ export default async function Home() {
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Splitwise
         </h2>
+        {/* will move into a proper dashboard later */}
         {!swCred ? (
           <div className="mt-3">
             <p className="text-muted-foreground">
@@ -126,6 +128,15 @@ export default async function Home() {
             </div>
           </div>
         )}
+      </section>
+
+      <section className="mt-12 border-t border-border pt-6">
+        <Link
+          href="/reconcile"
+          className="text-sm underline text-muted-foreground hover:text-foreground"
+        >
+          View reconciliation debug →
+        </Link>
       </section>
     </main>
   );

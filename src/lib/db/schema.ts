@@ -229,11 +229,25 @@ export const tags = pgTable(
   ],
 );
 
-// One row per bank transaction once we've decided what to do with it.
-// matchType = 'auto'        : matched to a Splitwise expense automatically
-//             'manual'      : user confirmed/overrode the match
-//             'not_shared'  : user said this is a personal expense (use full amount)
-//             'unmatched'   : no Splitwise counterpart; defaults to full amount
+// Reconciliation: a derived decision about a transaction and/or a Splitwise
+// expense. Exactly one of (transaction_id, splitwise_expense_id) may be null:
+// - both set        → a matched pair (the common case)
+// - txn null        → SPLITWISE_ONLY (cash dinner Splitwise sees, bank doesn't)
+// - sw null         → PERSONAL_EXPENSE or UNMATCHED (bank-side only)
+//
+// `reconciliation_type` and `state` are stored as text (not enum) so we can
+// extend the vocabulary without migrations. Valid values mirror the constants
+// in src/lib/reconciliation/types.ts.
+//
+// Code that creates these rows should treat them as part of a logical
+// "reconciliation group" even though v1 writes 1:1 — future N:M expansion is
+// an additive schema change (join table), not a rewrite.
+export type MatchReason = {
+  kind: "amount" | "date" | "text" | "currency";
+  weight: number;
+  detail: string;
+};
+
 export const reconciliations = pgTable(
   "reconciliation",
   {
@@ -243,10 +257,9 @@ export const reconciliations = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    transactionId: text("transaction_id")
-      .notNull()
-      .unique()
-      .references(() => transactions.id, { onDelete: "cascade" }),
+    transactionId: text("transaction_id").references(() => transactions.id, {
+      onDelete: "cascade",
+    }),
     splitwiseExpenseId: text("splitwise_expense_id").references(
       () => splitwiseExpenses.id,
       { onDelete: "set null" },
@@ -255,9 +268,24 @@ export const reconciliations = pgTable(
       precision: 12,
       scale: 2,
     }).notNull(),
-    matchType: text("match_type").notNull(),
+    reconciliationType: text("reconciliation_type").notNull(),
+    state: text("state").notNull(),
     confidence: numeric("confidence", { precision: 3, scale: 2 }),
+    matchReasons: jsonb("match_reasons").$type<MatchReason[]>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (r) => [uniqueIndex("rec_user_txn_uq").on(r.userId, r.transactionId)],
+  (r) => [
+    // One reconciliation per (user, bank txn) when txn is set. Postgres treats
+    // multiple NULL transaction_ids as distinct, so this doesn't block
+    // SPLITWISE_ONLY rows.
+    uniqueIndex("rec_user_txn_uq")
+      .on(r.userId, r.transactionId)
+      .where(sql`${r.transactionId} IS NOT NULL`),
+    // For SPLITWISE_ONLY (txn null), one reconciliation per splitwise expense.
+    uniqueIndex("rec_user_swe_uq")
+      .on(r.userId, r.splitwiseExpenseId)
+      .where(
+        sql`${r.transactionId} IS NULL AND ${r.splitwiseExpenseId} IS NOT NULL`,
+      ),
+  ],
 );
