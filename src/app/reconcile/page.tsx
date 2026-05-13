@@ -177,7 +177,7 @@ export default async function ReconcilePage() {
 
       <section className="mt-8 rounded-md border border-border bg-card p-4">
         <div className="text-xs uppercase tracking-wider text-muted-foreground">
-          Summary
+          Summary (within bank coverage)
         </div>
         <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
@@ -192,9 +192,10 @@ export default async function ReconcilePage() {
           </div>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          Difference of $
-          {(bankRaw - actualSpend).toFixed(2)} is the slice of bank outflow
-          that's really other people's money flowing through your account.
+          Difference ${(bankRaw - actualSpend).toFixed(2)}. When positive, that's
+          the slice of bank outflow that's actually other people's money
+          flowing through your account. When negative, you owe more than you've
+          spent through this account (e.g., cash dinners only Splitwise sees).
         </p>
       </section>
 

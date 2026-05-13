@@ -5,7 +5,7 @@ import {
   transactions,
   type MatchReason,
 } from "@/lib/db/schema";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import {
   DATE_WINDOW_DAYS,
   RECONCILIATION_TYPES,
@@ -43,6 +43,9 @@ export type ReconcileResult = {
   proposed: number;
   splitwiseOnly: number;
   unmatched: number;
+  coverageStart: string | null;
+  coverageEnd: string | null;
+  swSkippedOutOfWindow: number;
 };
 
 // Wrapper struct so the engine's input/output shape is "groups" even when v1
@@ -61,7 +64,14 @@ type Group = {
 export async function reconcileForUser(
   userId: string,
 ): Promise<ReconcileResult> {
-  // 1. Pull live bank outflows that aren't yet reconciled.
+  // v1 strategy: full rebuild on each run. Once USER_CONFIRMED / USER_REJECTED
+  // / MANUAL_MATCH exist, we'll preserve those rows and only wipe the engine-
+  // owned ones.
+  await db
+    .delete(reconciliations)
+    .where(eq(reconciliations.userId, userId));
+
+  // 1. Pull live bank outflows.
   const bankTxns = (await db
     .select({
       id: transactions.id,
@@ -71,45 +81,79 @@ export async function reconcileForUser(
       isoCurrencyCode: transactions.isoCurrencyCode,
     })
     .from(transactions)
-    .leftJoin(
-      reconciliations,
-      eq(reconciliations.transactionId, transactions.id),
-    )
     .where(
       and(
         eq(transactions.userId, userId),
         isNull(transactions.deletedAt),
-        isNull(reconciliations.id),
         sql`${transactions.amount}::numeric > 0`, // outflows only for v1
       ),
     )) as BankTxn[];
 
-  // 2. Pull live Splitwise expenses where the user actually paid the bill
-  //    (paid_by_user > 0). Those are the FRONTED_SHARED_EXPENSE candidates.
-  const swExpenses = (await db
-    .select({
-      id: splitwiseExpenses.id,
-      cost: splitwiseExpenses.cost,
-      date: splitwiseExpenses.date,
-      description: splitwiseExpenses.description,
-      currencyCode: splitwiseExpenses.currencyCode,
-      paidByUser: splitwiseExpenses.paidByUser,
-      userShare: splitwiseExpenses.userShare,
-    })
-    .from(splitwiseExpenses)
-    .where(
-      and(
-        eq(splitwiseExpenses.userId, userId),
-        isNull(splitwiseExpenses.deletedAt),
-        sql`${splitwiseExpenses.paidByUser}::numeric > 0`,
-      ),
-    )) as SwExpense[];
+  // 2. Determine the bank's coverage window. Splitwise expenses outside this
+  // window can't meaningfully be reconciled — there's no bank reality on
+  // either side of the window to compare to — so we drop them silently from
+  // "actual spend." This is critical when Splitwise pre-dates the bank link
+  // (common during sandbox testing or onboarding).
+  let coverageStart: string | null = null;
+  let coverageEnd: string | null = null;
+  if (bankTxns.length > 0) {
+    const sortedDates = bankTxns
+      .map((t) => t.date)
+      .sort((a, b) => a.localeCompare(b));
+    coverageStart = sortedDates[0];
+    coverageEnd = sortedDates[sortedDates.length - 1];
+  }
+
+  // 3. Pull Splitwise expenses where the user paid, scoped to the bank window.
+  const swExpenses =
+    coverageStart && coverageEnd
+      ? ((await db
+          .select({
+            id: splitwiseExpenses.id,
+            cost: splitwiseExpenses.cost,
+            date: splitwiseExpenses.date,
+            description: splitwiseExpenses.description,
+            currencyCode: splitwiseExpenses.currencyCode,
+            paidByUser: splitwiseExpenses.paidByUser,
+            userShare: splitwiseExpenses.userShare,
+          })
+          .from(splitwiseExpenses)
+          .where(
+            and(
+              eq(splitwiseExpenses.userId, userId),
+              isNull(splitwiseExpenses.deletedAt),
+              sql`${splitwiseExpenses.paidByUser}::numeric > 0`,
+              gte(splitwiseExpenses.date, coverageStart),
+              lte(splitwiseExpenses.date, coverageEnd),
+            ),
+          )) as SwExpense[])
+      : [];
+
+  // Track how many Splitwise rows we skipped so the debug view can explain it.
+  let swSkippedOutOfWindow = 0;
+  if (coverageStart && coverageEnd) {
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(splitwiseExpenses)
+      .where(
+        and(
+          eq(splitwiseExpenses.userId, userId),
+          isNull(splitwiseExpenses.deletedAt),
+          sql`${splitwiseExpenses.paidByUser}::numeric > 0`,
+          sql`(${splitwiseExpenses.date} < ${coverageStart} OR ${splitwiseExpenses.date} > ${coverageEnd})`,
+        ),
+      );
+    swSkippedOutOfWindow = count;
+  }
 
   const result: ReconcileResult = {
     autoMatched: 0,
     proposed: 0,
     splitwiseOnly: 0,
     unmatched: 0,
+    coverageStart,
+    coverageEnd,
+    swSkippedOutOfWindow,
   };
 
   // 3. For each bank outflow, find the best Splitwise candidate.
