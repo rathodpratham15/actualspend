@@ -91,6 +91,10 @@ export const plaidItems = pgTable("plaid_item", {
   institutionId: text("institution_id"),
   institutionName: text("institution_name"),
   cursor: text("cursor"), // Plaid /transactions/sync cursor for incremental pulls
+  // Latest Plaid error_code on this item. ITEM_LOGIN_REQUIRED → user must
+  // re-auth (their bank rotated creds, MFA expired, etc.). Cleared on a
+  // successful sync.
+  errorCode: text("error_code"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

@@ -1,6 +1,8 @@
 import { Configuration, PlaidApi, PlaidEnvironments } from "plaid";
 
-const env = (process.env.PLAID_ENV ?? "sandbox") as keyof typeof PlaidEnvironments;
+export type PlaidEnv = "sandbox" | "development" | "production";
+
+export const plaidEnv = (process.env.PLAID_ENV ?? "sandbox") as PlaidEnv;
 
 if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
   // Allow build-time imports without crashing; runtime checks happen in routes.
@@ -9,7 +11,7 @@ if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
 
 export const plaid = new PlaidApi(
   new Configuration({
-    basePath: PlaidEnvironments[env],
+    basePath: PlaidEnvironments[plaidEnv],
     baseOptions: {
       headers: {
         "PLAID-CLIENT-ID": process.env.PLAID_CLIENT_ID ?? "",
