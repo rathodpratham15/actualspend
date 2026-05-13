@@ -9,6 +9,9 @@ type RunResult = {
   proposed: number;
   splitwiseOnly: number;
   unmatched: number;
+  coverageStart: string | null;
+  coverageEnd: string | null;
+  swSkippedOutOfWindow: number;
 };
 
 export function RunReconcileButton() {
@@ -32,15 +35,25 @@ export function RunReconcileButton() {
   };
 
   return (
-    <div className="flex items-center gap-3">
-      <Button onClick={run} disabled={busy}>
-        {busy ? "Running…" : "Run reconciliation"}
-      </Button>
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        <Button onClick={run} disabled={busy}>
+          {busy ? "Running…" : "Run reconciliation"}
+        </Button>
+        {last && (
+          <span className="text-sm text-muted-foreground">
+            auto {last.autoMatched} · proposed {last.proposed} · splitwise-only{" "}
+            {last.splitwiseOnly} · unmatched {last.unmatched}
+          </span>
+        )}
+      </div>
       {last && (
-        <span className="text-sm text-muted-foreground">
-          auto {last.autoMatched} · proposed {last.proposed} · splitwise-only{" "}
-          {last.splitwiseOnly} · unmatched {last.unmatched}
-        </span>
+        <p className="text-xs text-muted-foreground">
+          Coverage: {last.coverageStart ?? "—"} → {last.coverageEnd ?? "—"} ·{" "}
+          {last.swSkippedOutOfWindow} Splitwise expense
+          {last.swSkippedOutOfWindow === 1 ? "" : "s"} skipped outside this
+          window
+        </p>
       )}
     </div>
   );
