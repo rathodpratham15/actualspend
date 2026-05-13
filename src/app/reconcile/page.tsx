@@ -10,9 +10,10 @@ import {
   RECONCILIATION_TYPES,
   STATES,
 } from "@/lib/reconciliation/types";
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { RunReconcileButton } from "@/components/run-reconcile-button";
+import { ReconcileActionButtons } from "@/components/reconcile-action-buttons";
 
 // Intentionally ugly. This page exists to inspect the engine's output on
 // real data — it's not the eventual user-facing dashboard.
@@ -67,10 +68,12 @@ function Section({
   title,
   rows,
   showAmounts = true,
+  showActions = false,
 }: {
   title: string;
   rows: Row[];
   showAmounts?: boolean;
+  showActions?: boolean;
 }) {
   const total = rows.reduce((s, r) => s + Number(r.actualAmount), 0);
   return (
@@ -120,6 +123,7 @@ function Section({
                   ))}
                 </ul>
               )}
+              {showActions && <ReconcileActionButtons id={r.recId} />}
             </li>
           ))}
         </ul>
@@ -140,11 +144,15 @@ export default async function ReconcilePage() {
       r.state === STATES.AUTO_MATCHED,
   );
   const proposed = rows.filter((r) => r.state === STATES.PENDING);
+  const confirmed = rows.filter((r) => r.state === STATES.USER_CONFIRMED);
+  const rejected = rows.filter((r) => r.state === STATES.USER_REJECTED);
   const swOnly = rows.filter(
     (r) => r.recType === RECONCILIATION_TYPES.SPLITWISE_ONLY,
   );
   const personal = rows.filter(
-    (r) => r.recType === RECONCILIATION_TYPES.PERSONAL_EXPENSE,
+    (r) =>
+      r.recType === RECONCILIATION_TYPES.PERSONAL_EXPENSE &&
+      r.state !== STATES.USER_REJECTED,
   );
 
   const actualSpend =
@@ -200,11 +208,17 @@ export default async function ReconcilePage() {
       </section>
 
       <Section title="Matched (auto)" rows={matched} />
-      <Section title="Proposed (pending)" rows={proposed} />
+      <Section title="Proposed (pending)" rows={proposed} showActions />
+      <Section title="Confirmed (by you)" rows={confirmed} />
       <Section title="Splitwise-only (cash etc.)" rows={swOnly} />
       <Section
         title="Personal / unmatched"
         rows={personal}
+        showAmounts={false}
+      />
+      <Section
+        title="Rejected (won't be re-proposed)"
+        rows={rejected}
         showAmounts={false}
       />
     </main>

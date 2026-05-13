@@ -5,7 +5,7 @@ import {
   transactions,
   type MatchReason,
 } from "@/lib/db/schema";
-import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   DATE_WINDOW_DAYS,
   RECONCILIATION_TYPES,
@@ -61,18 +61,75 @@ type Group = {
   actualAmount: number;
 };
 
+// States the user has personally decided on. Preserved across engine rebuilds;
+// the engine never overwrites these.
+const USER_OWNED_STATES = [
+  STATES.USER_CONFIRMED,
+  STATES.USER_REJECTED,
+  STATES.MANUAL_MATCH,
+  STATES.IGNORED,
+];
+
 export async function reconcileForUser(
   userId: string,
 ): Promise<ReconcileResult> {
-  // v1 strategy: full rebuild on each run. Once USER_CONFIRMED / USER_REJECTED
-  // / MANUAL_MATCH exist, we'll preserve those rows and only wipe the engine-
-  // owned ones.
+  // Preserve user-decided rows; wipe everything the engine wrote itself.
+  const preserved = await db
+    .select({
+      id: reconciliations.id,
+      transactionId: reconciliations.transactionId,
+      splitwiseExpenseId: reconciliations.splitwiseExpenseId,
+      state: reconciliations.state,
+    })
+    .from(reconciliations)
+    .where(
+      and(
+        eq(reconciliations.userId, userId),
+        inArray(reconciliations.state, USER_OWNED_STATES),
+      ),
+    );
+
+  // Txns the engine should NOT touch this run: anything carried by a
+  // preserved row (USER_CONFIRMED/REJECTED/MANUAL_MATCH/IGNORED).
+  const lockedTxnIds = new Set(
+    preserved.map((p) => p.transactionId).filter((id): id is string => !!id),
+  );
+  // Splitwise expenses already claimed by a user decision (confirmed or
+  // manually matched) — those are off the candidate market. Rejected pairs
+  // don't claim the expense, only the txn.
+  const claimedSwIdsByUser = new Set(
+    preserved
+      .filter(
+        (p) =>
+          p.state === STATES.USER_CONFIRMED ||
+          p.state === STATES.MANUAL_MATCH,
+      )
+      .map((p) => p.splitwiseExpenseId)
+      .filter((id): id is string => !!id),
+  );
+  // (Future: rejectedPairs set keyed by `${txnId}::${sweId}` so re-running
+  // after data changes can re-propose for the same txn against a different
+  // Splitwise expense. v1 keeps the simpler "rejection locks the txn"
+  // behavior via lockedTxnIds above.)
+
+  // Wipe engine-owned rows. User-owned rows (matched by inArray on
+  // USER_OWNED_STATES) are preserved.
   await db
     .delete(reconciliations)
-    .where(eq(reconciliations.userId, userId));
+    .where(
+      and(
+        eq(reconciliations.userId, userId),
+        or(
+          eq(reconciliations.state, STATES.AUTO_MATCHED),
+          eq(reconciliations.state, STATES.PENDING),
+        )!,
+      ),
+    );
 
-  // 1. Pull live bank outflows.
-  const bankTxns = (await db
+  // 1. Pull live bank outflows. We pull ALL of them first so the coverage
+  // window calc reflects the full bank reality, then filter out user-locked
+  // txns before scoring.
+  const allBankTxns = (await db
     .select({
       id: transactions.id,
       amount: transactions.amount,
@@ -89,6 +146,8 @@ export async function reconcileForUser(
       ),
     )) as BankTxn[];
 
+  const bankTxns = allBankTxns.filter((t) => !lockedTxnIds.has(t.id));
+
   // 2. Determine the bank's coverage window. Splitwise expenses outside this
   // window can't meaningfully be reconciled — there's no bank reality on
   // either side of the window to compare to — so we drop them silently from
@@ -96,16 +155,17 @@ export async function reconcileForUser(
   // (common during sandbox testing or onboarding).
   let coverageStart: string | null = null;
   let coverageEnd: string | null = null;
-  if (bankTxns.length > 0) {
-    const sortedDates = bankTxns
+  if (allBankTxns.length > 0) {
+    const sortedDates = allBankTxns
       .map((t) => t.date)
       .sort((a, b) => a.localeCompare(b));
     coverageStart = sortedDates[0];
     coverageEnd = sortedDates[sortedDates.length - 1];
   }
 
-  // 3. Pull Splitwise expenses where the user paid, scoped to the bank window.
-  const swExpenses =
+  // 3. Pull Splitwise expenses where the user paid, scoped to the bank window
+  // and excluding any already claimed by a user-confirmed / manual match.
+  const swExpensesRaw =
     coverageStart && coverageEnd
       ? ((await db
           .select({
@@ -128,6 +188,9 @@ export async function reconcileForUser(
             ),
           )) as SwExpense[])
       : [];
+  const swExpenses = swExpensesRaw.filter(
+    (e) => !claimedSwIdsByUser.has(e.id),
+  );
 
   // Track how many Splitwise rows we skipped so the debug view can explain it.
   let swSkippedOutOfWindow = 0;
