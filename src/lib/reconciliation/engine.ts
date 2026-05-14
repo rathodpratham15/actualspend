@@ -15,6 +15,7 @@ import {
   type ReconciliationType,
 } from "./types";
 import { scoreCandidate } from "./score";
+import { recategorizeUserTransactions } from "@/lib/plaid/recategorize";
 
 // Designed to be invoked any time fresh data arrives. Idempotent: rows that
 // already have a reconciliation are left alone (we never overwrite a USER_*
@@ -76,6 +77,11 @@ const USER_OWNED_STATES = [
 export async function reconcileForUser(
   userId: string,
 ): Promise<ReconcileResult> {
+  // Reapply the latest PFC → canonical mapping to all transactions before
+  // reconciling. Keeps the dashboard breakdown current as the mapping table
+  // evolves, without requiring re-syncs from Plaid.
+  await recategorizeUserTransactions(userId);
+
   // Preserve user-decided rows; wipe everything the engine wrote itself.
   const preserved = await db
     .select({

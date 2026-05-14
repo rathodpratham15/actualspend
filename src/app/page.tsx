@@ -143,6 +143,11 @@ const CATEGORY_LABEL: Record<string, string> = {
   INCOME: "Income",
   REIMBURSEMENT: "Reimbursement",
   TRANSFER: "Transfer",
+  SHOPPING: "Shopping",
+  TRAVEL: "Travel",
+  HEALTH: "Health",
+  FEES: "Fees & loans",
+  TAXES: "Taxes & gov",
   OTHER: "Other",
 };
 
