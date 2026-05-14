@@ -119,7 +119,11 @@ function ActualSpendHero({
         <HeroMetric
           label="Reimbursements pending"
           value={fmtUSD(metrics.reimbursementsPending)}
-          hint="Owed to you · heuristic"
+          hint={
+            metrics.reimbursementsReceived > 0
+              ? `${fmtUSD(metrics.reimbursementsGrossOwed)} owed − ${fmtUSD(metrics.reimbursementsReceived)} received`
+              : `${fmtUSD(metrics.reimbursementsGrossOwed)} owed · none received yet`
+          }
         />
       </CardContent>
     </Card>
