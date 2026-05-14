@@ -1,68 +1,88 @@
 "use client";
 
-import { useTransition } from "react";
-import { useRouter, usePathname } from "next/navigation";
-import { format } from "date-fns";
+import { useState } from "react";
+import { Calendar as CalendarIcon } from "lucide-react";
 import type { DateRange } from "react-day-picker";
-import { Calendar } from "@/components/ui/calendar";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Calendar } from "@/components/ui/calendar";
 
-function parseIso(d: string): Date {
-  const [y, m, day] = d.split("-").map(Number);
-  return new Date(y, m - 1, day);
-}
+const PRESETS = [
+  "This month",
+  "Last month",
+  "Last 30 days",
+  "Last 90 days",
+  "Year to date",
+  "Custom",
+] as const;
 
-function toIso(d: Date): string {
-  return format(d, "yyyy-MM-dd");
-}
+type Preset = (typeof PRESETS)[number];
 
-export function DateRangePicker({ from, to }: { from: string; to: string }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const [pending, startTransition] = useTransition();
+export function DateRangePicker() {
+  const [open, setOpen] = useState(false);
+  const [preset, setPreset] = useState<Preset>("This month");
+  const [range, setRange] = useState<DateRange>({
+    from: new Date(2025, 9, 1),
+    to: new Date(2025, 9, 31),
+  });
 
-  const selected: DateRange = {
-    from: parseIso(from),
-    to: parseIso(to),
-  };
-
-  const display = `${format(selected.from!, "MMM d")} – ${format(
-    selected.to!,
-    "MMM d, yyyy",
-  )}`;
-
-  const onSelect = (r: DateRange | undefined) => {
-    if (!r?.from || !r?.to) return;
-    const params = new URLSearchParams();
-    params.set("from", toIso(r.from));
-    params.set("to", toIso(r.to));
-    startTransition(() => {
-      router.push(`${pathname}?${params.toString()}`);
-    });
-  };
+  const label =
+    preset === "Custom"
+      ? `${range.from?.toLocaleDateString("en-US", { month: "short", day: "2-digit" })} – ${range.to?.toLocaleDateString("en-US", { month: "short", day: "2-digit" })}`
+      : preset;
 
   return (
-    <Popover>
-      <PopoverTrigger
-        className={cn(buttonVariants({ variant: "outline" }))}
-        data-pending={pending ? "" : undefined}
-      >
-        {display}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-testid="date-range-trigger"
+          className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-border text-sm hover:bg-secondary transition-colors"
+        >
+          <CalendarIcon className="h-3.5 w-3.5 text-secondary" />
+          <span className="font-mono">{label}</span>
+        </button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="end">
-        <Calendar
-          mode="range"
-          selected={selected}
-          onSelect={onSelect}
-          numberOfMonths={2}
-          defaultMonth={selected.from}
-        />
+      <PopoverContent
+        align="end"
+        className="w-auto p-0 bg-surface border-border"
+      >
+        <div className="flex">
+          <div className="border-r border-border p-2 w-40">
+            {PRESETS.map((p) => (
+              <button
+                key={p}
+                data-testid={`preset-${p.toLowerCase().replace(/\s+/g, "-")}`}
+                onClick={() => {
+                  setPreset(p);
+                  if (p !== "Custom") setOpen(false);
+                }}
+                className={`w-full text-left text-sm px-2 py-1.5 rounded hover:bg-secondary transition-colors ${
+                  p === preset ? "text-foreground" : "text-secondary"
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+          <div className="p-2">
+            <Calendar
+              mode="range"
+              numberOfMonths={2}
+              selected={range}
+              onSelect={(r) => {
+                if (r) {
+                  setRange(r);
+                  setPreset("Custom");
+                }
+              }}
+            />
+          </div>
+        </div>
       </PopoverContent>
     </Popover>
   );

@@ -1,336 +1,199 @@
-import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+"use client";
+
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { toast } from "sonner";
+import { AppHeader } from "@/components/app-header";
+import { ReconCard } from "@/components/recon-card";
+import { SubtractionBlock } from "@/components/subtraction-block";
 import {
-  reconciliations,
-  splitwiseCredentials,
-  splitwiseExpenseParticipants,
-  splitwiseExpenses,
-  splitwiseFriends,
-  transactions,
-  type MatchReason,
-} from "@/lib/db/schema";
-import {
-  RECONCILIATION_TYPES,
-  STATES,
-} from "@/lib/reconciliation/types";
-import { desc, eq, inArray } from "drizzle-orm";
-import Link from "next/link";
-import { RunReconcileButton } from "@/components/run-reconcile-button";
-import { ReconcileActionButtons } from "@/components/reconcile-action-buttons";
-
-// Intentionally ugly. This page exists to inspect the engine's output on
-// real data — it's not the eventual user-facing dashboard.
-
-type Row = {
-  recId: string;
-  recType: string;
-  state: string;
-  actualAmount: string;
-  confidence: string | null;
-  matchReasons: MatchReason[] | null;
-  createdAt: Date;
-  txnName: string | null;
-  txnAmount: string | null;
-  txnDate: string | null;
-  swExpenseId: string | null;
-  swDescription: string | null;
-  swCost: string | null;
-  swDate: string | null;
-  swUserShare: string | null;
-};
-
-type ParticipantInfo = {
-  names: string[];
-  totalCount: number;
-};
-
-async function fetchRows(userId: string): Promise<Row[]> {
-  const rows = await db
-    .select({
-      recId: reconciliations.id,
-      recType: reconciliations.reconciliationType,
-      state: reconciliations.state,
-      actualAmount: reconciliations.actualAmount,
-      confidence: reconciliations.confidence,
-      matchReasons: reconciliations.matchReasons,
-      createdAt: reconciliations.createdAt,
-      txnName: transactions.name,
-      txnAmount: transactions.amount,
-      txnDate: transactions.date,
-      swExpenseId: splitwiseExpenses.id,
-      swDescription: splitwiseExpenses.description,
-      swCost: splitwiseExpenses.cost,
-      swDate: splitwiseExpenses.date,
-      swUserShare: splitwiseExpenses.userShare,
-    })
-    .from(reconciliations)
-    .leftJoin(transactions, eq(transactions.id, reconciliations.transactionId))
-    .leftJoin(
-      splitwiseExpenses,
-      eq(splitwiseExpenses.id, reconciliations.splitwiseExpenseId),
-    )
-    .where(eq(reconciliations.userId, userId))
-    .orderBy(desc(reconciliations.createdAt));
-  return rows as Row[];
-}
-
-// Builds a map from splitwise_expense.id → "other participants" info.
-// "Other" excludes the current user; up to 3 names + "+N more" tail.
-async function fetchParticipantInfo(
-  userId: string,
-  rows: Row[],
-): Promise<Map<string, ParticipantInfo>> {
-  const expenseIds = Array.from(
-    new Set(rows.map((r) => r.swExpenseId).filter((id): id is string => !!id)),
-  );
-  if (expenseIds.length === 0) return new Map();
-
-  const [cred] = await db
-    .select({ splitwiseUserId: splitwiseCredentials.splitwiseUserId })
-    .from(splitwiseCredentials)
-    .where(eq(splitwiseCredentials.userId, userId));
-  const selfId = cred?.splitwiseUserId ?? null;
-
-  const participants = await db
-    .select({
-      expenseId: splitwiseExpenseParticipants.expenseId,
-      splitwiseUserId: splitwiseExpenseParticipants.splitwiseUserId,
-    })
-    .from(splitwiseExpenseParticipants)
-    .where(inArray(splitwiseExpenseParticipants.expenseId, expenseIds));
-
-  const friends = await db
-    .select({
-      splitwiseUserId: splitwiseFriends.splitwiseUserId,
-      firstName: splitwiseFriends.firstName,
-      lastName: splitwiseFriends.lastName,
-    })
-    .from(splitwiseFriends)
-    .where(eq(splitwiseFriends.userId, userId));
-  const nameMap = new Map(
-    friends.map((f) => [
-      f.splitwiseUserId,
-      `${f.firstName ?? ""} ${f.lastName ?? ""}`.trim() ||
-        `user ${f.splitwiseUserId}`,
-    ]),
-  );
-
-  const out = new Map<string, ParticipantInfo>();
-  for (const p of participants) {
-    if (selfId !== null && p.splitwiseUserId === selfId) continue;
-    const entry = out.get(p.expenseId) ?? { names: [], totalCount: 0 };
-    entry.names.push(nameMap.get(p.splitwiseUserId) ?? `user ${p.splitwiseUserId}`);
-    entry.totalCount++;
-    out.set(p.expenseId, entry);
-  }
-  return out;
-}
-
-function renderParticipants(info: ParticipantInfo | undefined): string | null {
-  if (!info || info.totalCount === 0) return null;
-  const shown = info.names.slice(0, 3);
-  const extra = info.totalCount - shown.length;
-  const list = shown.join(", ");
-  const tail = extra > 0 ? ` +${extra} more` : "";
-  return `Split with ${list}${tail}`;
-}
+  awaitingReview,
+  matchedAuto,
+  splitwiseOnly,
+  personalUnmatched,
+  totals,
+} from "@/lib/seed";
+import { usd, dateShort } from "@/lib/format";
 
 function Section({
   title,
-  rows,
-  participants,
-  showAmounts = true,
-  showActions = false,
+  count,
+  defaultOpen = false,
+  children,
 }: {
   title: string;
-  rows: Row[];
-  participants: Map<string, ParticipantInfo>;
-  showAmounts?: boolean;
-  showActions?: boolean;
+  count: number;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
 }) {
-  const total = rows.reduce((s, r) => s + Number(r.actualAmount), 0);
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <section className="mt-8">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-        {title} <span className="ml-2 font-normal">({rows.length})</span>
-        {showAmounts && rows.length > 0 && (
-          <span className="ml-2 font-normal">· ${total.toFixed(2)} actual</span>
-        )}
-      </h2>
-      {rows.length === 0 ? (
-        <p className="mt-2 text-sm text-muted-foreground">None.</p>
-      ) : (
-        <ul className="mt-3 space-y-3">
-          {rows.map((r) => (
-            <li
-              key={r.recId}
-              className="rounded-md border border-border bg-card p-3 text-sm"
-            >
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <div>
-                  {r.txnName && (
-                    <span className="font-medium">{r.txnName}</span>
-                  )}
-                  {r.txnName && r.swDescription && (
-                    <span className="mx-2 text-muted-foreground">↔</span>
-                  )}
-                  {r.swDescription && (
-                    <span className="font-medium">{r.swDescription}</span>
-                  )}
-                  {!r.txnName && !r.swDescription && (
-                    <span className="italic text-muted-foreground">
-                      (no description)
-                    </span>
-                  )}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  bank ${r.txnAmount ?? "—"} · sw ${r.swCost ?? "—"} · your share $
-                  {r.swUserShare ?? "—"} · actual ${r.actualAmount}
-                  {r.confidence && ` · ${(Number(r.confidence) * 100).toFixed(0)}%`}
-                </div>
-              </div>
-              {r.swExpenseId && (() => {
-                const line = renderParticipants(participants.get(r.swExpenseId));
-                return line ? (
-                  <p className="mt-2 text-xs text-muted-foreground">{line}</p>
-                ) : null;
-              })()}
-              {r.matchReasons && r.matchReasons.length > 0 && (
-                <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
-                  {r.matchReasons.map((reason, i) => (
-                    <li key={i}>· {reason.detail}</li>
-                  ))}
-                </ul>
-              )}
-              {showActions && <ReconcileActionButtons id={r.recId} />}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+    <div className="mt-8 border-t border-border pt-6">
+      <button
+        type="button"
+        data-testid={`section-${title.toLowerCase().replace(/\s+/g, "-")}`}
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <div className="flex items-baseline gap-3">
+          <span className="text-[15px] font-medium">{title}</span>
+          <span className="font-mono text-secondary text-sm">({count})</span>
+        </div>
+        <ChevronDown
+          className={`h-4 w-4 text-secondary transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && <div className="mt-6 space-y-3">{children}</div>}
+    </div>
   );
 }
 
-export default async function ReconcilePage() {
-  const session = await auth();
-  if (!session?.user?.id) return null;
+export default function ReconcilePage() {
+  const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
 
-  const rows = await fetchRows(session.user.id);
-  const participants = await fetchParticipantInfo(session.user.id, rows);
-
-  const matched = rows.filter(
-    (r) =>
-      r.recType === RECONCILIATION_TYPES.FRONTED_SHARED_EXPENSE &&
-      r.state === STATES.AUTO_MATCHED,
-  );
-  const reimbursed = rows.filter(
-    (r) =>
-      r.recType === RECONCILIATION_TYPES.REIMBURSEMENT_RECEIVED &&
-      r.state === STATES.AUTO_MATCHED,
-  );
-  const proposed = rows.filter((r) => r.state === STATES.PENDING);
-  const confirmed = rows.filter((r) => r.state === STATES.USER_CONFIRMED);
-  const rejected = rows.filter((r) => r.state === STATES.USER_REJECTED);
-  const swOnly = rows.filter(
-    (r) => r.recType === RECONCILIATION_TYPES.SPLITWISE_ONLY,
-  );
-  const personal = rows.filter(
-    (r) =>
-      r.recType === RECONCILIATION_TYPES.PERSONAL_EXPENSE &&
-      r.state !== STATES.USER_REJECTED,
-  );
-
-  const actualSpend =
-    matched.reduce((s, r) => s + Number(r.actualAmount), 0) +
-    swOnly.reduce((s, r) => s + Number(r.actualAmount), 0) +
-    personal.reduce((s, r) => s + Number(r.actualAmount), 0);
-
-  const bankRaw = [...matched, ...personal].reduce(
-    (s, r) => s + Number(r.txnAmount ?? 0),
-    0,
-  );
+  const confirm = (id: string) => {
+    setDismissed((d) => ({ ...d, [id]: true }));
+    toast.success("Match confirmed.");
+  };
+  const reject = (id: string) => {
+    setDismissed((d) => ({ ...d, [id]: true }));
+    toast("Match rejected.", { description: "Moved back to personal." });
+  };
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-12">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold tracking-tight">
-          Reconciliation debug
-        </h1>
-        <Link
-          href="/"
-          className="text-sm text-muted-foreground underline hover:text-foreground"
+    <div className="min-h-screen bg-background">
+      <AppHeader variant="app" />
+
+      <main className="max-w-3xl mx-auto px-6 pt-10 pb-24">
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl tracking-tight font-medium">Review</h1>
+          <button
+            data-testid="run-recon-btn"
+            onClick={() => toast.success("Reconciliation complete.")}
+            className="h-9 px-3 rounded-md border border-border text-sm hover:bg-secondary transition-colors"
+          >
+            Run reconciliation
+          </button>
+        </div>
+
+        <div className="mt-8 bg-surface border border-border rounded-xl p-6">
+          <SubtractionBlock
+            bank={totals.bankOutflow}
+            shared={totals.sharedAdjustments}
+            actual={totals.actual}
+            bankLabel="Bank outflow"
+            sharedLabel="Shared adjustments"
+            actualLabel="Actual spend"
+            decimals={0}
+          />
+          <div className="mt-6 text-sm text-secondary leading-relaxed">
+            Most of the difference comes from shared expenses you initially paid
+            for.
+          </div>
+        </div>
+
+        <Section
+          title="Awaiting your review"
+          count={awaitingReview.length}
+          defaultOpen
         >
-          ← Home
-        </Link>
-      </div>
+          {awaitingReview.map((p) => (
+            <ReconCard
+              key={p.id}
+              pair={p}
+              state="awaiting"
+              onConfirm={confirm}
+              onReject={reject}
+              dismissed={dismissed[p.id]}
+            />
+          ))}
+        </Section>
 
-      <div className="mt-6">
-        <RunReconcileButton />
-      </div>
-
-      <section className="mt-8 rounded-md border border-border bg-card p-4">
-        <div className="text-xs uppercase tracking-wider text-muted-foreground">
-          Summary (within bank coverage)
-        </div>
-        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <div className="text-xs text-muted-foreground">Bank raw outflow</div>
-            <div className="text-xl font-semibold">${bankRaw.toFixed(2)}</div>
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground">
-              Actual spend (engine output)
+        <Section title="Matched automatically" count={matchedAuto.length}>
+          {matchedAuto.map((p) => (
+            <div
+              key={p.id}
+              data-testid={`matched-${p.id}`}
+              className="bg-surface border border-border border-l-2 border-l-[var(--emerald)] rounded-xl p-4"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-xs font-mono text-secondary">
+                    {dateShort(p.bank.date)}
+                  </div>
+                  <div className="text-[15px]">{p.bank.merchant}</div>
+                  <div className="text-xs text-secondary mt-1">
+                    {p.splitwise.title}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-mono text-sm">
+                    {usd(p.bank.amount, { decimals: 2 })}
+                  </div>
+                  <div className="font-mono text-xs text-secondary mt-1">
+                    {p.confidence}%
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="text-xl font-semibold">${actualSpend.toFixed(2)}</div>
-          </div>
-        </div>
-        <p className="mt-3 text-xs text-muted-foreground">
-          Difference ${(bankRaw - actualSpend).toFixed(2)}. When positive, that's
-          the slice of bank outflow that's actually other people's money
-          flowing through your account. When negative, you owe more than you've
-          spent through this account (e.g., cash dinners only Splitwise sees).
-        </p>
-      </section>
+          ))}
+        </Section>
 
-      <Section
-        title="Matched (auto)"
-        rows={matched}
-        participants={participants}
-      />
-      <Section
-        title="Reimbursements received"
-        rows={reimbursed}
-        participants={participants}
-        showAmounts={false}
-      />
-      <Section
-        title="Proposed (pending)"
-        rows={proposed}
-        participants={participants}
-        showActions
-      />
-      <Section
-        title="Confirmed (by you)"
-        rows={confirmed}
-        participants={participants}
-      />
-      <Section
-        title="Splitwise-only (cash etc.)"
-        rows={swOnly}
-        participants={participants}
-      />
-      <Section
-        title="Personal / unmatched"
-        rows={personal}
-        participants={participants}
-        showAmounts={false}
-      />
-      <Section
-        title="Rejected (won't be re-proposed)"
-        rows={rejected}
-        participants={participants}
-        showAmounts={false}
-      />
-    </main>
+        <Section title="Splitwise-only" count={splitwiseOnly.length}>
+          {splitwiseOnly.map((s) => (
+            <div
+              key={s.id}
+              data-testid={`splitwise-only-${s.id}`}
+              className="bg-surface border border-border border-l-2 border-l-[var(--border)] rounded-xl p-4"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-[15px]">{s.title}</div>
+                  <div className="text-xs text-secondary mt-1">{s.group}</div>
+                </div>
+                <div className="font-mono text-sm">
+                  {usd(s.yourShare, { decimals: 2 })}
+                </div>
+              </div>
+              <div className="mt-3">
+                <button className="text-sm text-secondary hover:text-foreground">
+                  Mark as paid by Chase Sapphire →
+                </button>
+              </div>
+            </div>
+          ))}
+        </Section>
+
+        <Section title="Personal / unmatched" count={personalUnmatched.length}>
+          {personalUnmatched.map((p) => (
+            <div
+              key={p.id}
+              data-testid={`personal-${p.id}`}
+              className="bg-surface border border-border rounded-xl p-4"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-xs font-mono text-secondary">
+                    {dateShort(p.date)}
+                  </div>
+                  <div className="text-[15px]">{p.merchant}</div>
+                  <div className="text-xs text-secondary mt-1">
+                    Suggested: {p.suggested}
+                  </div>
+                </div>
+                <div className="font-mono text-sm">
+                  {usd(p.amount, { decimals: 2 })}
+                </div>
+              </div>
+              <div className="mt-3">
+                <button className="text-sm text-secondary hover:text-foreground">
+                  Add to a Splitwise expense →
+                </button>
+              </div>
+            </div>
+          ))}
+        </Section>
+      </main>
+    </div>
   );
 }
