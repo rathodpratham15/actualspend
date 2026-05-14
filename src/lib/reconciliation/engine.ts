@@ -1,7 +1,10 @@
 import { db } from "@/lib/db";
 import {
   reconciliations,
+  splitwiseCredentials,
+  splitwiseExpenseParticipants,
   splitwiseExpenses,
+  splitwiseFriends,
   transactions,
   type MatchReason,
 } from "@/lib/db/schema";
@@ -269,6 +272,56 @@ export async function reconcileForUser(
     (e) => !claimedSwIdsByUser.has(e.id),
   );
 
+  // Build a payment-id → payer display name map. We use the friend table to
+  // resolve splitwise_user_id → first_name; that name then gets fed as the
+  // "description" when scoring an inflow against the payment, so the
+  // existing text-overlap component in scoreCandidate fires when the bank
+  // description includes "VENMO FROM BOB" against a friend named Bob.
+  const payerNameByExpenseId = new Map<string, string>();
+  if (paymentCandidates.length > 0) {
+    const [selfCred] = await db
+      .select({ splitwiseUserId: splitwiseCredentials.splitwiseUserId })
+      .from(splitwiseCredentials)
+      .where(eq(splitwiseCredentials.userId, userId));
+    const selfId = selfCred?.splitwiseUserId ?? null;
+
+    const parts = await db
+      .select({
+        expenseId: splitwiseExpenseParticipants.expenseId,
+        splitwiseUserId: splitwiseExpenseParticipants.splitwiseUserId,
+        paidShare: splitwiseExpenseParticipants.paidShare,
+      })
+      .from(splitwiseExpenseParticipants)
+      .where(
+        inArray(
+          splitwiseExpenseParticipants.expenseId,
+          paymentCandidates.map((p) => p.id),
+        ),
+      );
+
+    const friends = await db
+      .select({
+        splitwiseUserId: splitwiseFriends.splitwiseUserId,
+        firstName: splitwiseFriends.firstName,
+        lastName: splitwiseFriends.lastName,
+      })
+      .from(splitwiseFriends)
+      .where(eq(splitwiseFriends.userId, userId));
+    const nameById = new Map(
+      friends.map((f) => [
+        f.splitwiseUserId,
+        `${f.firstName ?? ""} ${f.lastName ?? ""}`.trim(),
+      ]),
+    );
+
+    for (const p of parts) {
+      if (Number(p.paidShare) <= 0) continue;
+      if (selfId !== null && p.splitwiseUserId === selfId) continue;
+      const name = nameById.get(p.splitwiseUserId);
+      if (name) payerNameByExpenseId.set(p.expenseId, name);
+    }
+  }
+
   const result: ReconcileResult = {
     autoMatched: 0,
     proposed: 0,
@@ -380,6 +433,14 @@ export async function reconcileForUser(
       );
       if (days > DATE_WINDOW_DAYS) continue;
 
+      // Smart match: feed the payer's name as the "description" so the
+      // text-overlap component fires when the bank inflow name (e.g.
+      // "VENMO FROM BOB SMITH") includes the friend's first/last name.
+      // Falls back to the Splitwise description (usually just "Payment")
+      // when the payer can't be resolved.
+      const payerName = payerNameByExpenseId.get(exp.id);
+      const swText = payerName || exp.description;
+
       const s = scoreCandidate(
         { amount: inflowMagnitude, date: inflow.date, name: inflow.name },
         {
@@ -387,7 +448,7 @@ export async function reconcileForUser(
           // payment record represents for our user.
           cost: Number(exp.userShare),
           date: exp.date,
-          description: exp.description,
+          description: swText,
         },
       );
       if (s.score > (best?.score ?? 0)) {
