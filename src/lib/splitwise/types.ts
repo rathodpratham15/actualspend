@@ -25,6 +25,10 @@ export type SplitwiseExpense = {
   users: SplitwiseExpenseUser[];
   updated_at: string;
   deleted_at: string | null;
+  // True when this row is a settlement payment between users (someone
+  // marked "X paid Y $Z to settle up"), not a real shared expense.
+  // Reimbursement matching keys off this.
+  payment: boolean;
 };
 
 export type GetCurrentUserResponse = { user: SplitwiseUser };
