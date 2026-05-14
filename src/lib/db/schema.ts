@@ -161,6 +161,28 @@ export const transactions = pgTable(
   ],
 );
 
+// Cache of the user's Splitwise friends. Lets us resolve splitwise_user_id
+// → display name when rendering participant lists. Refreshed via
+// /get_friends on every Splitwise sync.
+export const splitwiseFriends = pgTable(
+  "splitwise_friend",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    splitwiseUserId: integer("splitwise_user_id").notNull(),
+    firstName: text("first_name"),
+    lastName: text("last_name"),
+    email: text("email"),
+    pictureUrl: text("picture_url"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.splitwiseUserId] }),
+  ],
+);
+
 // Splitwise expenses pulled via API.
 // userShare = the portion this user is responsible for (net of what they paid).
 // Sign convention: positive userShare = user owes / spent that much net.
@@ -190,6 +212,31 @@ export const splitwiseExpenses = pgTable(
   (e) => [
     index("sw_user_date_idx").on(e.userId, e.date),
     index("sw_user_cost_idx").on(e.userId, e.cost),
+  ],
+);
+
+// One row per (expense, participant). Captures the full Splitwise users[]
+// array so we can render "split with Sanj, Bob + 2 others", do per-person
+// analytics, and improve reimbursement matching by knowing who specifically
+// owes you for each fronted expense.
+export const splitwiseExpenseParticipants = pgTable(
+  "splitwise_expense_participant",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    expenseId: text("expense_id")
+      .notNull()
+      .references(() => splitwiseExpenses.id, { onDelete: "cascade" }),
+    splitwiseUserId: integer("splitwise_user_id").notNull(),
+    paidShare: numeric("paid_share", { precision: 12, scale: 2 }).notNull(),
+    owedShare: numeric("owed_share", { precision: 12, scale: 2 }).notNull(),
+    netBalance: numeric("net_balance", { precision: 12, scale: 2 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("swep_expense_user_uq").on(t.expenseId, t.splitwiseUserId),
+    index("swep_user_idx").on(t.splitwiseUserId),
   ],
 );
 
