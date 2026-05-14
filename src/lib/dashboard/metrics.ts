@@ -5,12 +5,18 @@ import {
   transactions,
 } from "@/lib/db/schema";
 import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { RECONCILIATION_TYPES } from "@/lib/reconciliation/types";
 import type { Period } from "./period";
 
 export type DashboardMetrics = {
   bankSpent: number;
   sharedExpensesFronted: number;
+  /** Net owed to user this period: grossOwed − reimbursementsReceived. */
   reimbursementsPending: number;
+  /** Total others-owe-you for expenses fronted in this period. */
+  reimbursementsGrossOwed: number;
+  /** Sum of bank inflows matched as REIMBURSEMENT_RECEIVED in this period. */
+  reimbursementsReceived: number;
   actualSpend: number;
 };
 
@@ -51,12 +57,9 @@ export async function computeDashboardMetrics(
       ),
     );
 
-  // Reimbursements pending (heuristic):
-  // For each Splitwise expense in the period that you fronted, the amount
-  // others owe you = paid_by_user - user_share (when positive). Sum those.
-  // This doesn't yet subtract reimbursements actually received — v2 will
-  // wire that in once REIMBURSEMENT_RECEIVED matching exists.
-  const [pendingRow] = await db
+  // Gross owed: for each Splitwise expense in the period the user fronted,
+  // the amount others owe = paid_by_user − user_share (when positive).
+  const [grossOwedRow] = await db
     .select({
       total: sql<number>`COALESCE(SUM(GREATEST(${splitwiseExpenses.paidByUser}::numeric - ${splitwiseExpenses.userShare}::numeric, 0)), 0)::float`,
     })
@@ -70,6 +73,37 @@ export async function computeDashboardMetrics(
         sql`${splitwiseExpenses.paidByUser}::numeric > 0`,
       ),
     );
+
+  // Reimbursements received in period: bank inflows the engine matched to
+  // Splitwise payment records. Use the inflow magnitude (|amount|) since the
+  // bank stores it as negative.
+  const [receivedRow] = await db
+    .select({
+      total: sql<number>`COALESCE(SUM(ABS(${transactions.amount}::numeric)), 0)::float`,
+    })
+    .from(reconciliations)
+    .leftJoin(
+      transactions,
+      eq(transactions.id, reconciliations.transactionId),
+    )
+    .where(
+      and(
+        eq(reconciliations.userId, userId),
+        eq(
+          reconciliations.reconciliationType,
+          RECONCILIATION_TYPES.REIMBURSEMENT_RECEIVED,
+        ),
+        gte(transactions.date, period.from),
+        lte(transactions.date, period.to),
+      ),
+    );
+
+  const grossOwed = grossOwedRow.total;
+  const received = receivedRow.total;
+  // Net pending — floor at 0 since reimbursements received in this period
+  // might exceed new fronts in the same period (you got paid back for older
+  // expenses). We don't want a "negative pending" sign-flip in the UI.
+  const pending = Math.max(grossOwed - received, 0);
 
   // Actual spend: from the reconciliation engine output, dated by the
   // underlying transaction (or splitwise expense for SPLITWISE_ONLY).
@@ -96,7 +130,9 @@ export async function computeDashboardMetrics(
   return {
     bankSpent: bankRow.total,
     sharedExpensesFronted: frontedRow.total,
-    reimbursementsPending: pendingRow.total,
+    reimbursementsPending: pending,
+    reimbursementsGrossOwed: grossOwed,
+    reimbursementsReceived: received,
     actualSpend: actualRow.total,
   };
 }
