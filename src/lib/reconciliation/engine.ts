@@ -509,7 +509,11 @@ export async function reconcileForUser(
         {
           kind: "amount",
           weight: 0,
-          detail: "No bank transaction found within date window",
+          // Neutral phrasing — the row might be cash, an out-of-window
+          // bank charge, or a fronted expense awaiting reimbursement.
+          // The /reconcile renderer turns this into a richer message
+          // using participant data (e.g. "Aditi owes you $8.25").
+          detail: "Splitwise-only entry · no matching bank charge",
         },
       ],
       actualAmount: Number(exp.userShare),

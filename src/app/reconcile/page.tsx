@@ -37,6 +37,7 @@ type Row = {
   swCost: string | null;
   swDate: string | null;
   swUserShare: string | null;
+  swPaidByUser: string | null;
   swIsPayment: boolean | null;
 };
 
@@ -45,7 +46,23 @@ type ParticipantInfo = {
   payerIsSelf: boolean;
   otherNames: string[];
   otherCount: number;
+  // First non-self participant who is owed money (used when user fronted).
+  primaryOtherName: string | null;
 };
+
+function fmtUSD(n: number): string {
+  return n.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+  });
+}
+
+function joinNames(names: string[], max = 3): string {
+  const shown = names.slice(0, max);
+  const extra = names.length - shown.length;
+  const list = shown.join(", ");
+  return extra > 0 ? `${list} +${extra} more` : list;
+}
 
 async function fetchRows(userId: string): Promise<Row[]> {
   const rows = await db
@@ -65,6 +82,7 @@ async function fetchRows(userId: string): Promise<Row[]> {
       swCost: splitwiseExpenses.cost,
       swDate: splitwiseExpenses.date,
       swUserShare: splitwiseExpenses.userShare,
+      swPaidByUser: splitwiseExpenses.paidByUser,
       swIsPayment: splitwiseExpenses.isPayment,
     })
     .from(reconciliations)
@@ -78,7 +96,6 @@ async function fetchRows(userId: string): Promise<Row[]> {
   return rows as Row[];
 }
 
-// Builds a map from splitwise_expense.id → who paid + who else was on it.
 async function fetchParticipantInfo(
   userId: string,
   rows: Row[],
@@ -99,6 +116,7 @@ async function fetchParticipantInfo(
       expenseId: splitwiseExpenseParticipants.expenseId,
       splitwiseUserId: splitwiseExpenseParticipants.splitwiseUserId,
       paidShare: splitwiseExpenseParticipants.paidShare,
+      owedShare: splitwiseExpenseParticipants.owedShare,
     })
     .from(splitwiseExpenseParticipants)
     .where(inArray(splitwiseExpenseParticipants.expenseId, expenseIds));
@@ -119,15 +137,21 @@ async function fetchParticipantInfo(
     ]),
   );
 
-  // Bucket participants by expense, then pick the payer (paid_share > 0,
-  // first one wins if multiple) and list the rest.
   const byExpense = new Map<
     string,
-    Array<{ splitwiseUserId: number; paidShare: string }>
+    Array<{
+      splitwiseUserId: number;
+      paidShare: string;
+      owedShare: string;
+    }>
   >();
   for (const p of participants) {
     const arr = byExpense.get(p.expenseId) ?? [];
-    arr.push({ splitwiseUserId: p.splitwiseUserId, paidShare: p.paidShare });
+    arr.push({
+      splitwiseUserId: p.splitwiseUserId,
+      paidShare: p.paidShare,
+      owedShare: p.owedShare,
+    });
     byExpense.set(p.expenseId, arr);
   }
 
@@ -143,26 +167,33 @@ async function fetchParticipantInfo(
       payer !== null && selfId !== null && payer.splitwiseUserId === selfId;
     const payerName = payer ? resolveName(payer.splitwiseUserId) : null;
 
-    const others = ps
+    const nonSelfNonPayer = ps
       .filter((p) => !payer || p.splitwiseUserId !== payer.splitwiseUserId)
-      .filter((p) => !(selfId !== null && p.splitwiseUserId === selfId))
-      .map((p) => resolveName(p.splitwiseUserId));
+      .filter((p) => !(selfId !== null && p.splitwiseUserId === selfId));
+
+    const others = nonSelfNonPayer.map((p) => resolveName(p.splitwiseUserId));
+
+    // For the "owed back" UI: when the user is the payer, the primary
+    // counterparty is whoever owes the most.
+    let primaryOtherName: string | null = null;
+    if (payerIsSelf) {
+      const sorted = [...nonSelfNonPayer].sort(
+        (a, b) => Number(b.owedShare) - Number(a.owedShare),
+      );
+      if (sorted.length > 0) {
+        primaryOtherName = resolveName(sorted[0].splitwiseUserId);
+      }
+    }
 
     out.set(expenseId, {
       payerName,
       payerIsSelf,
       otherNames: others,
       otherCount: others.length,
+      primaryOtherName,
     });
   }
   return out;
-}
-
-function joinNames(names: string[], max = 3): string {
-  const shown = names.slice(0, max);
-  const extra = names.length - shown.length;
-  const list = shown.join(", ");
-  return extra > 0 ? `${list} +${extra} more` : list;
 }
 
 function renderParticipants(
@@ -170,8 +201,6 @@ function renderParticipants(
   isPayment: boolean,
 ): string | null {
   if (!info || !info.payerName) return null;
-
-  // Payment record: "you paid Bob" / "Bob paid you"
   if (isPayment) {
     if (info.payerIsSelf) {
       return info.otherNames.length > 0
@@ -180,8 +209,6 @@ function renderParticipants(
     }
     return `${info.payerName} paid you`;
   }
-
-  // Regular shared expense: surface payer + the rest
   if (info.payerIsSelf) {
     return info.otherCount > 0
       ? `You paid · split with ${joinNames(info.otherNames)}`
@@ -190,6 +217,99 @@ function renderParticipants(
   return info.otherCount > 0
     ? `${info.payerName} paid · split with you and ${joinNames(info.otherNames)}`
     : `${info.payerName} paid · split with you`;
+}
+
+// Right-side amount line. Replaces the old terse "bank $X · sw $X · your
+// share $X · actual $X" with something the user can read.
+function renderAmounts(r: Row, info: ParticipantInfo | undefined): string {
+  const bill = r.swCost
+    ? Number(r.swCost)
+    : r.txnAmount
+      ? Math.abs(Number(r.txnAmount))
+      : null;
+  const yourPortion = r.swUserShare ? Number(r.swUserShare) : null;
+  const paidByYou = r.swPaidByUser ? Number(r.swPaidByUser) : null;
+
+  // Reimbursement received: inflow undoes prior spend.
+  if (r.recType === RECONCILIATION_TYPES.REIMBURSEMENT_RECEIVED) {
+    const amt = r.txnAmount ? Math.abs(Number(r.txnAmount)) : null;
+    if (amt !== null) return `Received ${fmtUSD(amt)}`;
+  }
+
+  // Personal expense: full bank charge, no split.
+  if (r.recType === RECONCILIATION_TYPES.PERSONAL_EXPENSE) {
+    const amt = r.txnAmount ? Math.abs(Number(r.txnAmount)) : null;
+    if (amt !== null)
+      return `Bill ${fmtUSD(amt)} · Your portion ${fmtUSD(amt)}`;
+    return "";
+  }
+
+  // Splitwise-only or fronted shared: surface bill + portions + counterparty.
+  const parts: string[] = [];
+  if (bill !== null) parts.push(`Bill ${fmtUSD(bill)}`);
+  if (yourPortion !== null) parts.push(`Your portion ${fmtUSD(yourPortion)}`);
+
+  // If user paid: show what others collectively owe them.
+  if (paidByYou !== null && yourPortion !== null && paidByYou > yourPortion) {
+    const othersOwe = paidByYou - yourPortion;
+    if (info?.primaryOtherName && info.otherCount === 1) {
+      parts.push(`${info.primaryOtherName} owes you ${fmtUSD(othersOwe)}`);
+    } else {
+      parts.push(`Others owe you ${fmtUSD(othersOwe)}`);
+    }
+  }
+
+  // If someone else paid: show what user owes that person.
+  if (
+    paidByYou !== null &&
+    paidByYou === 0 &&
+    yourPortion !== null &&
+    yourPortion > 0 &&
+    info?.payerName &&
+    !info.payerIsSelf
+  ) {
+    parts.push(`You owe ${info.payerName} ${fmtUSD(yourPortion)}`);
+  }
+
+  if (r.confidence) {
+    parts.push(`${(Number(r.confidence) * 100).toFixed(0)}% confidence`);
+  }
+
+  return parts.join(" · ");
+}
+
+// Replace the engine's generic neutral phrasing with something contextual
+// when we can. Falls back to the original reason text.
+function rewriteReason(
+  reason: MatchReason,
+  r: Row,
+  info: ParticipantInfo | undefined,
+): string {
+  if (reason.detail === "Splitwise-only entry · no matching bank charge") {
+    if (
+      r.swPaidByUser &&
+      Number(r.swPaidByUser) > 0 &&
+      info?.primaryOtherName &&
+      info?.otherCount === 1
+    ) {
+      return `Awaiting reimbursement from ${info.primaryOtherName}`;
+    }
+    if (
+      r.swPaidByUser &&
+      Number(r.swPaidByUser) > 0 &&
+      info?.otherCount &&
+      info.otherCount > 1
+    ) {
+      return "Awaiting reimbursement from the group";
+    }
+    if (r.swIsPayment) {
+      return info?.payerIsSelf
+        ? "Settlement payment from your side"
+        : "Settlement payment received";
+    }
+    return "Not matched to a bank transaction";
+  }
+  return reason.detail;
 }
 
 function Section({
@@ -211,60 +331,68 @@ function Section({
       <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
         {title} <span className="ml-2 font-normal">({rows.length})</span>
         {showAmounts && rows.length > 0 && (
-          <span className="ml-2 font-normal">· ${total.toFixed(2)} actual</span>
+          <span className="ml-2 font-normal">
+            · {fmtUSD(total)} counted as your spend
+          </span>
         )}
       </h2>
       {rows.length === 0 ? (
         <p className="mt-2 text-sm text-muted-foreground">None.</p>
       ) : (
         <ul className="mt-3 space-y-3">
-          {rows.map((r) => (
-            <li
-              key={r.recId}
-              className="rounded-md border border-border bg-card p-3 text-sm"
-            >
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <div>
-                  {r.txnName && (
-                    <span className="font-medium">{r.txnName}</span>
-                  )}
-                  {r.txnName && r.swDescription && (
-                    <span className="mx-2 text-muted-foreground">↔</span>
-                  )}
-                  {r.swDescription && (
-                    <span className="font-medium">{r.swDescription}</span>
-                  )}
-                  {!r.txnName && !r.swDescription && (
-                    <span className="italic text-muted-foreground">
-                      (no description)
-                    </span>
-                  )}
+          {rows.map((r) => {
+            const info = r.swExpenseId
+              ? participants.get(r.swExpenseId)
+              : undefined;
+            return (
+              <li
+                key={r.recId}
+                className="rounded-md border border-border bg-card p-3 text-sm"
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <div>
+                    {r.txnName && (
+                      <span className="font-medium">{r.txnName}</span>
+                    )}
+                    {r.txnName && r.swDescription && (
+                      <span className="mx-2 text-muted-foreground">↔</span>
+                    )}
+                    {r.swDescription && (
+                      <span className="font-medium">{r.swDescription}</span>
+                    )}
+                    {!r.txnName && !r.swDescription && (
+                      <span className="italic text-muted-foreground">
+                        (no description)
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {renderAmounts(r, info)}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  bank ${r.txnAmount ?? "—"} · sw ${r.swCost ?? "—"} · your share $
-                  {r.swUserShare ?? "—"} · actual ${r.actualAmount}
-                  {r.confidence && ` · ${(Number(r.confidence) * 100).toFixed(0)}%`}
-                </div>
-              </div>
-              {r.swExpenseId && (() => {
-                const line = renderParticipants(
-                  participants.get(r.swExpenseId),
-                  r.swIsPayment ?? false,
-                );
-                return line ? (
-                  <p className="mt-2 text-xs text-muted-foreground">{line}</p>
-                ) : null;
-              })()}
-              {r.matchReasons && r.matchReasons.length > 0 && (
-                <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
-                  {r.matchReasons.map((reason, i) => (
-                    <li key={i}>· {reason.detail}</li>
-                  ))}
-                </ul>
-              )}
-              {showActions && <ReconcileActionButtons id={r.recId} />}
-            </li>
-          ))}
+                {r.swExpenseId &&
+                  (() => {
+                    const line = renderParticipants(
+                      info,
+                      r.swIsPayment ?? false,
+                    );
+                    return line ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {line}
+                      </p>
+                    ) : null;
+                  })()}
+                {r.matchReasons && r.matchReasons.length > 0 && (
+                  <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+                    {r.matchReasons.map((reason, i) => (
+                      <li key={i}>· {rewriteReason(reason, r, info)}</li>
+                    ))}
+                  </ul>
+                )}
+                {showActions && <ReconcileActionButtons id={r.recId} />}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
@@ -335,20 +463,21 @@ export default async function ReconcilePage() {
         <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <div className="text-xs text-muted-foreground">Bank raw outflow</div>
-            <div className="text-xl font-semibold">${bankRaw.toFixed(2)}</div>
+            <div className="text-xl font-semibold">{fmtUSD(bankRaw)}</div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground">
               Actual spend (engine output)
             </div>
-            <div className="text-xl font-semibold">${actualSpend.toFixed(2)}</div>
+            <div className="text-xl font-semibold">{fmtUSD(actualSpend)}</div>
           </div>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          Difference ${(bankRaw - actualSpend).toFixed(2)}. When positive, that's
-          the slice of bank outflow that's actually other people's money
-          flowing through your account. When negative, you owe more than you've
-          spent through this account (e.g., cash dinners only Splitwise sees).
+          Difference {fmtUSD(bankRaw - actualSpend)}. When positive, that&apos;s
+          the slice of bank outflow that&apos;s actually other people&apos;s
+          money flowing through your account. When negative, you owe more than
+          you&apos;ve spent through this account (e.g., cash dinners only
+          Splitwise sees).
         </p>
       </section>
 
