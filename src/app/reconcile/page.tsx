@@ -37,11 +37,14 @@ type Row = {
   swCost: string | null;
   swDate: string | null;
   swUserShare: string | null;
+  swIsPayment: boolean | null;
 };
 
 type ParticipantInfo = {
-  names: string[];
-  totalCount: number;
+  payerName: string | null;
+  payerIsSelf: boolean;
+  otherNames: string[];
+  otherCount: number;
 };
 
 async function fetchRows(userId: string): Promise<Row[]> {
@@ -62,6 +65,7 @@ async function fetchRows(userId: string): Promise<Row[]> {
       swCost: splitwiseExpenses.cost,
       swDate: splitwiseExpenses.date,
       swUserShare: splitwiseExpenses.userShare,
+      swIsPayment: splitwiseExpenses.isPayment,
     })
     .from(reconciliations)
     .leftJoin(transactions, eq(transactions.id, reconciliations.transactionId))
@@ -74,8 +78,7 @@ async function fetchRows(userId: string): Promise<Row[]> {
   return rows as Row[];
 }
 
-// Builds a map from splitwise_expense.id → "other participants" info.
-// "Other" excludes the current user; up to 3 names + "+N more" tail.
+// Builds a map from splitwise_expense.id → who paid + who else was on it.
 async function fetchParticipantInfo(
   userId: string,
   rows: Row[],
@@ -95,6 +98,7 @@ async function fetchParticipantInfo(
     .select({
       expenseId: splitwiseExpenseParticipants.expenseId,
       splitwiseUserId: splitwiseExpenseParticipants.splitwiseUserId,
+      paidShare: splitwiseExpenseParticipants.paidShare,
     })
     .from(splitwiseExpenseParticipants)
     .where(inArray(splitwiseExpenseParticipants.expenseId, expenseIds));
@@ -115,24 +119,77 @@ async function fetchParticipantInfo(
     ]),
   );
 
-  const out = new Map<string, ParticipantInfo>();
+  // Bucket participants by expense, then pick the payer (paid_share > 0,
+  // first one wins if multiple) and list the rest.
+  const byExpense = new Map<
+    string,
+    Array<{ splitwiseUserId: number; paidShare: string }>
+  >();
   for (const p of participants) {
-    if (selfId !== null && p.splitwiseUserId === selfId) continue;
-    const entry = out.get(p.expenseId) ?? { names: [], totalCount: 0 };
-    entry.names.push(nameMap.get(p.splitwiseUserId) ?? `user ${p.splitwiseUserId}`);
-    entry.totalCount++;
-    out.set(p.expenseId, entry);
+    const arr = byExpense.get(p.expenseId) ?? [];
+    arr.push({ splitwiseUserId: p.splitwiseUserId, paidShare: p.paidShare });
+    byExpense.set(p.expenseId, arr);
+  }
+
+  const resolveName = (id: number): string => {
+    if (selfId !== null && id === selfId) return "you";
+    return nameMap.get(id) ?? `user ${id}`;
+  };
+
+  const out = new Map<string, ParticipantInfo>();
+  for (const [expenseId, ps] of byExpense) {
+    const payer = ps.find((p) => Number(p.paidShare) > 0) ?? null;
+    const payerIsSelf =
+      payer !== null && selfId !== null && payer.splitwiseUserId === selfId;
+    const payerName = payer ? resolveName(payer.splitwiseUserId) : null;
+
+    const others = ps
+      .filter((p) => !payer || p.splitwiseUserId !== payer.splitwiseUserId)
+      .filter((p) => !(selfId !== null && p.splitwiseUserId === selfId))
+      .map((p) => resolveName(p.splitwiseUserId));
+
+    out.set(expenseId, {
+      payerName,
+      payerIsSelf,
+      otherNames: others,
+      otherCount: others.length,
+    });
   }
   return out;
 }
 
-function renderParticipants(info: ParticipantInfo | undefined): string | null {
-  if (!info || info.totalCount === 0) return null;
-  const shown = info.names.slice(0, 3);
-  const extra = info.totalCount - shown.length;
+function joinNames(names: string[], max = 3): string {
+  const shown = names.slice(0, max);
+  const extra = names.length - shown.length;
   const list = shown.join(", ");
-  const tail = extra > 0 ? ` +${extra} more` : "";
-  return `Split with ${list}${tail}`;
+  return extra > 0 ? `${list} +${extra} more` : list;
+}
+
+function renderParticipants(
+  info: ParticipantInfo | undefined,
+  isPayment: boolean,
+): string | null {
+  if (!info || !info.payerName) return null;
+
+  // Payment record: "you paid Bob" / "Bob paid you"
+  if (isPayment) {
+    if (info.payerIsSelf) {
+      return info.otherNames.length > 0
+        ? `You paid ${joinNames(info.otherNames)}`
+        : "You made a payment";
+    }
+    return `${info.payerName} paid you`;
+  }
+
+  // Regular shared expense: surface payer + the rest
+  if (info.payerIsSelf) {
+    return info.otherCount > 0
+      ? `You paid · split with ${joinNames(info.otherNames)}`
+      : "You paid · no other participants";
+  }
+  return info.otherCount > 0
+    ? `${info.payerName} paid · split with you and ${joinNames(info.otherNames)}`
+    : `${info.payerName} paid · split with you`;
 }
 
 function Section({
@@ -190,7 +247,10 @@ function Section({
                 </div>
               </div>
               {r.swExpenseId && (() => {
-                const line = renderParticipants(participants.get(r.swExpenseId));
+                const line = renderParticipants(
+                  participants.get(r.swExpenseId),
+                  r.swIsPayment ?? false,
+                );
                 return line ? (
                   <p className="mt-2 text-xs text-muted-foreground">{line}</p>
                 ) : null;
