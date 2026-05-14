@@ -14,6 +14,7 @@ import { SyncButton } from "@/components/sync-button";
 import { ConnectSplitwiseButton } from "@/components/connect-splitwise-button";
 import { SyncSplitwiseButton } from "@/components/sync-splitwise-button";
 import { ForceResyncSplitwiseButton } from "@/components/force-resync-splitwise-button";
+import { BalancesPanel } from "@/components/balances-panel";
 import { plaidEnv } from "@/lib/plaid/client";
 import { cn } from "@/lib/utils";
 
@@ -165,6 +166,15 @@ export default async function AccountsPage() {
           </div>
         )}
       </section>
+
+      {swCred && (
+        <section className="mt-10">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Who owes whom
+          </h2>
+          <BalancesPanel userId={user.id} />
+        </section>
+      )}
 
       <section className="mt-12 border-t border-border pt-6">
         <Link

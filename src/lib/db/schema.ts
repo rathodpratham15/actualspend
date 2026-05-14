@@ -175,6 +175,12 @@ export const splitwiseFriends = pgTable(
     lastName: text("last_name"),
     email: text("email"),
     pictureUrl: text("picture_url"),
+    // Net balance with this friend per Splitwise's /get_friends response.
+    // Positive = friend owes the user; negative = the user owes the friend.
+    // USD-only for v1 (multi-currency balances stored as their USD sum).
+    balance: numeric("balance", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },

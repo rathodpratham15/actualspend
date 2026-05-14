@@ -21,6 +21,13 @@ async function syncFriends(userId: string, accessToken: string): Promise<number>
   );
   let count = 0;
   for (const f of data.friends) {
+    // Sum USD balance entries — Splitwise returns one entry per currency.
+    // Positive = friend owes the user; negative = user owes the friend.
+    const usdBalance = (f.balance ?? [])
+      .filter((b) => b.currency_code === "USD")
+      .reduce((s, b) => s + Number(b.amount), 0)
+      .toFixed(2);
+
     await db
       .insert(splitwiseFriends)
       .values({
@@ -30,6 +37,7 @@ async function syncFriends(userId: string, accessToken: string): Promise<number>
         lastName: f.last_name,
         email: f.email,
         pictureUrl: f.picture?.medium ?? f.picture?.small ?? null,
+        balance: usdBalance,
       })
       .onConflictDoUpdate({
         target: [splitwiseFriends.userId, splitwiseFriends.splitwiseUserId],
@@ -38,6 +46,7 @@ async function syncFriends(userId: string, accessToken: string): Promise<number>
           lastName: f.last_name,
           email: f.email,
           pictureUrl: f.picture?.medium ?? f.picture?.small ?? null,
+          balance: usdBalance,
           updatedAt: new Date(),
         },
       });
