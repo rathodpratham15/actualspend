@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { db } from "@/lib/db";
 import { splitwiseFriends } from "@/lib/db/schema";
 import { and, eq, sql } from "drizzle-orm";
@@ -90,7 +91,12 @@ export async function BalancesPanel({ userId }: { userId: string }) {
               key={r.splitwiseUserId}
               className="flex items-baseline justify-between"
             >
-              <span>{displayName(r)}</span>
+              <Link
+                href={`/friends/${r.splitwiseUserId}`}
+                className="underline-offset-2 hover:underline"
+              >
+                {displayName(r)}
+              </Link>
               <span
                 className={
                   isOwedToYou
