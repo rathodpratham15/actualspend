@@ -41,11 +41,17 @@ type Row = {
   swCost: string | null;
   swDate: string | null;
   swUserShare: string | null;
+  swPaidByUser: string | null;
+  swIsPayment: boolean | null;
 };
 
 type ParticipantInfo = {
-  names: string[];
-  totalCount: number;
+  payerName: string | null;
+  payerIsSelf: boolean;
+  otherNames: string[];
+  otherCount: number;
+  // First non-self participant who is owed money (used when user fronted).
+  primaryOtherName: string | null;
 };
 
 async function fetchRows(userId: string): Promise<Row[]> {
@@ -66,6 +72,8 @@ async function fetchRows(userId: string): Promise<Row[]> {
       swCost: splitwiseExpenses.cost,
       swDate: splitwiseExpenses.date,
       swUserShare: splitwiseExpenses.userShare,
+      swPaidByUser: splitwiseExpenses.paidByUser,
+      swIsPayment: splitwiseExpenses.isPayment,
     })
     .from(reconciliations)
     .leftJoin(transactions, eq(transactions.id, reconciliations.transactionId))
@@ -98,6 +106,8 @@ async function fetchParticipantInfo(
     .select({
       expenseId: splitwiseExpenseParticipants.expenseId,
       splitwiseUserId: splitwiseExpenseParticipants.splitwiseUserId,
+      paidShare: splitwiseExpenseParticipants.paidShare,
+      owedShare: splitwiseExpenseParticipants.owedShare,
     })
     .from(splitwiseExpenseParticipants)
     .where(inArray(splitwiseExpenseParticipants.expenseId, expenseIds));
@@ -118,30 +128,98 @@ async function fetchParticipantInfo(
     ]),
   );
 
-  const out = new Map<string, ParticipantInfo>();
+  const byExpense = new Map<
+    string,
+    Array<{
+      splitwiseUserId: number;
+      paidShare: string;
+      owedShare: string;
+    }>
+  >();
   for (const p of participants) {
-    if (selfId !== null && p.splitwiseUserId === selfId) continue;
-    const entry = out.get(p.expenseId) ?? { names: [], totalCount: 0 };
-    entry.names.push(
-      nameMap.get(p.splitwiseUserId) ?? `user ${p.splitwiseUserId}`,
-    );
-    entry.totalCount++;
-    out.set(p.expenseId, entry);
+    const arr = byExpense.get(p.expenseId) ?? [];
+    arr.push({
+      splitwiseUserId: p.splitwiseUserId,
+      paidShare: p.paidShare,
+      owedShare: p.owedShare,
+    });
+    byExpense.set(p.expenseId, arr);
+  }
+
+  const resolveName = (id: number): string => {
+    if (selfId !== null && id === selfId) return "you";
+    return nameMap.get(id) ?? `user ${id}`;
+  };
+
+  const out = new Map<string, ParticipantInfo>();
+  for (const [expenseId, ps] of byExpense) {
+    const payer = ps.find((p) => Number(p.paidShare) > 0) ?? null;
+    const payerIsSelf =
+      payer !== null && selfId !== null && payer.splitwiseUserId === selfId;
+    const payerName = payer ? resolveName(payer.splitwiseUserId) : null;
+
+    const nonSelfNonPayer = ps
+      .filter((p) => !payer || p.splitwiseUserId !== payer.splitwiseUserId)
+      .filter((p) => !(selfId !== null && p.splitwiseUserId === selfId));
+
+    const others = nonSelfNonPayer.map((p) => resolveName(p.splitwiseUserId));
+
+    // For the "owed back" UI: when the user is the payer, the primary
+    // counterparty is whoever owes the most.
+    let primaryOtherName: string | null = null;
+    if (payerIsSelf) {
+      const sorted = [...nonSelfNonPayer].sort(
+        (a, b) => Number(b.owedShare) - Number(a.owedShare),
+      );
+      if (sorted.length > 0) {
+        primaryOtherName = resolveName(sorted[0].splitwiseUserId);
+      }
+    }
+
+    out.set(expenseId, {
+      payerName,
+      payerIsSelf,
+      otherNames: others,
+      otherCount: others.length,
+      primaryOtherName,
+    });
   }
   return out;
 }
 
+// Human-readable group subtitle for a ReconCard. Surfaces the payer when
+// it isn't the user, otherwise just lists co-participants.
 function groupLabel(info: ParticipantInfo | undefined): string {
-  if (!info || info.totalCount === 0) return "Splitwise expense";
-  const shown = info.names.slice(0, 2);
-  const extra = info.totalCount - shown.length;
-  return `Split with ${shown.join(", ")}${extra > 0 ? ` +${extra}` : ""}`;
+  if (!info || !info.payerName) return "Splitwise expense";
+
+  const shown = info.otherNames.slice(0, 2);
+  const extra = info.otherCount - shown.length;
+  const tail = extra > 0 ? ` +${extra}` : "";
+
+  if (info.payerIsSelf) {
+    if (info.otherCount === 0) return "You paid · solo";
+    return `Split with ${shown.join(", ")}${tail}`;
+  }
+
+  if (info.otherCount === 0) return `${info.payerName} paid · split with you`;
+  return `${info.payerName} paid · with you, ${shown.join(", ")}${tail}`;
+}
+
+// Total people on the expense, including the user. Used by ReconCard's
+// "split N ways" line.
+function totalPeople(info: ParticipantInfo | undefined): number {
+  if (!info) return 1;
+  // self (1) + payer-if-not-self (1) + others
+  return 1 + (info.payerIsSelf ? 0 : 1) + info.otherCount;
 }
 
 // Map a server-side reconciliation row into the shape ReconCard expects.
 // Plaid stores positive amounts as outflows; ReconCard displays via usd()
 // which prepends "−" for negatives — so we negate before passing.
-function toPair(r: Row, participants: Map<string, ParticipantInfo>): ReconciliationPair {
+function toPair(
+  r: Row,
+  participants: Map<string, ParticipantInfo>,
+): ReconciliationPair {
   const info = r.swExpenseId ? participants.get(r.swExpenseId) : undefined;
   return {
     id: r.recId,
@@ -156,7 +234,7 @@ function toPair(r: Row, participants: Map<string, ParticipantInfo>): Reconciliat
       group: groupLabel(info),
       total: r.swCost ? Number(r.swCost) : 0,
       yourShare: r.swUserShare ? Number(r.swUserShare) : 0,
-      people: (info?.totalCount ?? 0) + 1,
+      people: totalPeople(info),
     },
     confidence: r.confidence ? Math.round(Number(r.confidence) * 100) : 0,
     reasons: (r.matchReasons ?? []).map((reason) => reason.detail),
@@ -300,7 +378,9 @@ export default async function ReconcilePage() {
                     </div>
                     <div className="text-xs text-secondary mt-1">
                       {groupLabel(
-                        r.swExpenseId ? participants.get(r.swExpenseId) : undefined,
+                        r.swExpenseId
+                          ? participants.get(r.swExpenseId)
+                          : undefined,
                       )}
                     </div>
                   </div>
