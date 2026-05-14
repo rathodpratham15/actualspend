@@ -37,6 +37,8 @@ export type SplitwiseFriend = {
   last_name: string | null;
   email: string | null;
   picture?: { medium?: string; large?: string; small?: string };
+  // Splitwise returns one entry per currency; we sum the USD ones for v1.
+  balance?: Array<{ currency_code: string; amount: string }>;
 };
 
 export type GetCurrentUserResponse = { user: SplitwiseUser };
