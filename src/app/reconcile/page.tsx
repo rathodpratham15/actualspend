@@ -222,7 +222,11 @@ function renderParticipants(
 // Right-side amount line. Replaces the old terse "bank $X · sw $X · your
 // share $X · actual $X" with something the user can read.
 function renderAmounts(r: Row, info: ParticipantInfo | undefined): string {
-  const bill = r.swCost ? Number(r.swCost) : r.txnAmount ? Math.abs(Number(r.txnAmount)) : null;
+  const bill = r.swCost
+    ? Number(r.swCost)
+    : r.txnAmount
+      ? Math.abs(Number(r.txnAmount))
+      : null;
   const yourPortion = r.swUserShare ? Number(r.swUserShare) : null;
   const paidByYou = r.swPaidByUser ? Number(r.swPaidByUser) : null;
 
@@ -235,7 +239,8 @@ function renderAmounts(r: Row, info: ParticipantInfo | undefined): string {
   // Personal expense: full bank charge, no split.
   if (r.recType === RECONCILIATION_TYPES.PERSONAL_EXPENSE) {
     const amt = r.txnAmount ? Math.abs(Number(r.txnAmount)) : null;
-    if (amt !== null) return `Bill ${fmtUSD(amt)} · Your portion ${fmtUSD(amt)}`;
+    if (amt !== null)
+      return `Bill ${fmtUSD(amt)} · Your portion ${fmtUSD(amt)}`;
     return "";
   }
 
@@ -249,8 +254,6 @@ function renderAmounts(r: Row, info: ParticipantInfo | undefined): string {
     const othersOwe = paidByYou - yourPortion;
     if (info?.primaryOtherName && info.otherCount === 1) {
       parts.push(`${info.primaryOtherName} owes you ${fmtUSD(othersOwe)}`);
-    } else if (info?.otherCount && info.otherCount > 1) {
-      parts.push(`Others owe you ${fmtUSD(othersOwe)}`);
     } else {
       parts.push(`Others owe you ${fmtUSD(othersOwe)}`);
     }
