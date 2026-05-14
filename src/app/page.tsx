@@ -1,134 +1,23 @@
 import Link from "next/link";
-import { auth, signOut } from "@/lib/auth";
-import { Button, buttonVariants } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { eq } from "drizzle-orm";
+
+import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { plaidItems, splitwiseCredentials } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
-import { DateRangePicker } from "@/components/date-range-picker";
-import {
-  formatPeriod,
-  parsePeriod,
-  type Period,
-} from "@/lib/dashboard/period";
 import {
   computeCategoryBreakdown,
   computeDashboardMetrics,
   type CategoryBreakdown,
-  type DashboardMetrics,
 } from "@/lib/dashboard/metrics";
-import { cn } from "@/lib/utils";
+import {
+  computeReconSectionCounts,
+  findReauthInstitution,
+} from "@/lib/dashboard/counts";
+import { parsePeriod, formatPeriod, type Period } from "@/lib/dashboard/period";
 
-function fmtUSD(n: number): string {
-  return n.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  });
-}
-
-function fmtUSDPrecise(n: number): string {
-  return n.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-  });
-}
-
-function HeroMetric({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-}) {
-  return (
-    <div>
-      <div className="text-xs uppercase tracking-wider text-muted-foreground">
-        {label}
-      </div>
-      <div className="mt-1 text-2xl font-semibold">{value}</div>
-      {hint && (
-        <div className="mt-0.5 text-xs text-muted-foreground">{hint}</div>
-      )}
-    </div>
-  );
-}
-
-function ActualSpendHero({
-  metrics,
-  period,
-}: {
-  metrics: DashboardMetrics;
-  period: Period;
-}) {
-  const passthrough = metrics.bankSpent - metrics.actualSpend;
-  return (
-    <Card className="mt-6">
-      <CardHeader>
-        <CardDescription>
-          Actual personal spend · {formatPeriod(period)}
-        </CardDescription>
-        <CardTitle className="text-4xl font-semibold tracking-tight">
-          {fmtUSDPrecise(metrics.actualSpend)}
-        </CardTitle>
-        {metrics.bankSpent > 0 && (
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your bank shows{" "}
-            <span className="font-medium text-foreground">
-              {fmtUSDPrecise(metrics.bankSpent)}
-            </span>{" "}
-            of outflow.{" "}
-            {passthrough > 0 ? (
-              <>
-                About{" "}
-                <span className="font-medium text-foreground">
-                  {fmtUSDPrecise(passthrough)}
-                </span>{" "}
-                of that is really other people&apos;s money flowing through
-                your account.
-              </>
-            ) : passthrough < 0 ? (
-              <>
-                You also have{" "}
-                <span className="font-medium text-foreground">
-                  {fmtUSDPrecise(-passthrough)}
-                </span>{" "}
-                of shared expenses Splitwise sees that didn&apos;t hit this
-                bank.
-              </>
-            ) : (
-              <>Nothing pass-through detected.</>
-            )}
-          </p>
-        )}
-      </CardHeader>
-      <CardContent className="grid grid-cols-1 gap-6 border-t border-border pt-6 sm:grid-cols-3">
-        <HeroMetric label="Bank outflow" value={fmtUSD(metrics.bankSpent)} />
-        <HeroMetric
-          label="Shared expenses (you fronted)"
-          value={fmtUSD(metrics.sharedExpensesFronted)}
-        />
-        <HeroMetric
-          label="Reimbursements pending"
-          value={fmtUSD(metrics.reimbursementsPending)}
-          hint={
-            metrics.reimbursementsReceived > 0
-              ? `${fmtUSD(metrics.reimbursementsGrossOwed)} owed − ${fmtUSD(metrics.reimbursementsReceived)} received`
-              : `${fmtUSD(metrics.reimbursementsGrossOwed)} owed · none received yet`
-          }
-        />
-      </CardContent>
-    </Card>
-  );
-}
+import { AppHeader } from "@/components/app-header";
+import { DateRangePicker } from "@/components/date-range-picker";
+import { DashboardHero } from "@/components/dashboard-hero";
 
 const CATEGORY_LABEL: Record<string, string> = {
   GROCERIES: "Groceries",
@@ -151,63 +40,19 @@ const CATEGORY_LABEL: Record<string, string> = {
   OTHER: "Other",
 };
 
-function CategorySection({ rows }: { rows: CategoryBreakdown[] }) {
-  if (rows.length === 0) return null;
-  const total = rows.reduce((s, r) => s + r.total, 0);
-  return (
-    <section className="mt-10">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-        Where it went (bank-side)
-      </h2>
-      <ul className="mt-3 space-y-2">
-        {rows.map((r) => {
-          const label = r.category
-            ? (CATEGORY_LABEL[r.category] ?? r.category)
-            : "Uncategorized";
-          const pct = total > 0 ? (r.total / total) * 100 : 0;
-          return (
-            <li key={r.category ?? "null"} className="text-sm">
-              <div className="flex items-baseline justify-between">
-                <span>{label}</span>
-                <span className="font-medium">{fmtUSD(r.total)}</span>
-              </div>
-              <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full bg-foreground/70"
-                  style={{ width: `${pct.toFixed(1)}%` }}
-                />
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
+function periodLabel(p: Period): string {
+  const [fy, fm] = p.from.split("-").map(Number);
+  const [ty, tm] = p.to.split("-").map(Number);
+  if (fy === ty && fm === tm) {
+    return new Date(fy, fm - 1, 1).toLocaleDateString(undefined, {
+      month: "short",
+      year: "numeric",
+    });
+  }
+  return formatPeriod(p);
 }
 
-function EmptyState() {
-  return (
-    <Card className="mt-12 text-center">
-      <CardHeader>
-        <CardTitle>Connect your accounts to begin</CardTitle>
-        <CardDescription>
-          ActualSpend reconciles your bank with Splitwise to show what you
-          really spent — not what your bank statement says.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Link
-          href="/accounts"
-          className={cn(buttonVariants({ variant: "default" }))}
-        >
-          Manage accounts
-        </Link>
-      </CardContent>
-    </Card>
-  );
-}
-
-export default async function Dashboard({
+export default async function DashboardPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -232,63 +77,139 @@ export default async function Dashboard({
 
   const connected = !!hasBank || !!hasSw;
 
-  const metrics = connected
-    ? await computeDashboardMetrics(user.id, period)
-    : null;
-  const categories = connected
-    ? await computeCategoryBreakdown(user.id, period)
-    : [];
+  if (!connected) {
+    return (
+      <div className="min-h-screen bg-background">
+        <AppHeader variant="app" />
+        <main className="max-w-3xl mx-auto px-6 pt-24 pb-24">
+          <div className="bg-surface border border-border rounded-xl p-10 text-center">
+            <h1 className="text-2xl tracking-tight font-medium">
+              Connect your accounts to begin
+            </h1>
+            <p className="mt-3 text-secondary leading-relaxed">
+              ActualSpend reconciles your bank with Splitwise to show what you
+              really spent — not what your bank statement says.
+            </p>
+            <Link
+              href="/accounts"
+              className="inline-flex items-center mt-8 h-9 px-4 rounded-md bg-foreground text-background text-sm hover:opacity-90 transition-opacity"
+            >
+              Manage accounts
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  const [metrics, categoryRows, counts, reauthInstitution] = await Promise.all([
+    computeDashboardMetrics(user.id, period),
+    computeCategoryBreakdown(user.id, period),
+    computeReconSectionCounts(user.id),
+    findReauthInstitution(user.id),
+  ]);
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">ActualSpend</h1>
-        <nav className="flex items-center gap-1">
-          <Link
-            href="/accounts"
-            className={cn(
-              buttonVariants({ variant: "ghost", size: "sm" }),
-              "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Accounts
-          </Link>
-          <Link
-            href="/reconcile"
-            className={cn(
-              buttonVariants({ variant: "ghost", size: "sm" }),
-              "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Review
-          </Link>
-          <form
-            action={async () => {
-              "use server";
-              await signOut({ redirectTo: "/login" });
-            }}
-          >
-            <Button type="submit" variant="ghost" size="sm">
-              Sign out
-            </Button>
-          </form>
-        </nav>
-      </header>
+    <div className="min-h-screen bg-background">
+      <AppHeader variant="app" />
 
-      {connected ? (
-        <>
-          <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">
-              Signed in as {user.email}
-            </p>
-            <DateRangePicker from={period.from} to={period.to} />
+      {reauthInstitution && (
+        <div className="border-b border-border bg-amber-soft/40">
+          <div className="max-w-5xl mx-auto px-6 py-2.5 flex items-center justify-between text-sm">
+            <span className="text-foreground">
+              Your{" "}
+              <span className="font-medium">{reauthInstitution}</span>{" "}
+              connection needs to be refreshed.
+            </span>
+            <Link
+              href="/accounts"
+              data-testid="reauth-link"
+              className="text-amber-accent hover:underline underline-offset-4"
+            >
+              Reconnect →
+            </Link>
           </div>
-          {metrics && <ActualSpendHero metrics={metrics} period={period} />}
-          <CategorySection rows={categories} />
-        </>
-      ) : (
-        <EmptyState />
+        </div>
       )}
-    </main>
+
+      <main className="max-w-5xl mx-auto px-6 pt-8 pb-24">
+        <div className="flex items-center justify-between mb-8">
+          <div
+            className="text-sm text-secondary font-mono"
+            data-testid="user-email"
+          >
+            {user.email}
+          </div>
+          <DateRangePicker from={period.from} to={period.to} />
+        </div>
+
+        <DashboardHero
+          metrics={metrics}
+          periodLabel={periodLabel(period)}
+        />
+
+        <Link
+          href="/reconcile"
+          data-testid="recon-strip"
+          className="mt-4 block bg-surface border border-border rounded-xl px-5 py-3 text-sm hover:bg-secondary/40 transition-colors"
+        >
+          <span className="font-mono">{counts.matched}</span> matched ·{" "}
+          <span
+            className={`font-mono ${counts.awaiting > 0 ? "text-amber-accent" : ""}`}
+          >
+            {counts.awaiting}
+          </span>{" "}
+          awaiting your review ·{" "}
+          <span className="font-mono">{counts.splitwiseOnly}</span>{" "}
+          Splitwise-only ·{" "}
+          <span className="font-mono">{counts.personal}</span> personal
+        </Link>
+
+        <CategorySection rows={categoryRows} />
+      </main>
+    </div>
+  );
+}
+
+function CategorySection({ rows }: { rows: CategoryBreakdown[] }) {
+  if (rows.length === 0) return null;
+  const max = rows[0]?.total ?? 0;
+
+  return (
+    <section className="mt-10">
+      <div className="text-[11px] uppercase tracking-widest text-secondary mb-6">
+        Where it went
+      </div>
+      <div className="space-y-4">
+        {rows.map((r) => {
+          const label = r.category
+            ? (CATEGORY_LABEL[r.category] ?? r.category)
+            : "Uncategorized";
+          const pct = max > 0 ? (r.total / max) * 100 : 0;
+          return (
+            <div
+              key={r.category ?? "null"}
+              data-testid={`cat-${(r.category ?? "uncategorized").toLowerCase()}`}
+            >
+              <div className="flex items-baseline justify-between text-[15px]">
+                <span>{label}</span>
+                <span className="font-mono">
+                  $
+                  {r.total.toLocaleString("en-US", {
+                    maximumFractionDigits: 0,
+                  })}
+                </span>
+              </div>
+              <div className="mt-2 h-px bg-border w-full relative">
+                <div
+                  className="absolute left-0 top-0 h-px bg-foreground transition-all"
+                  style={{ width: `${pct.toFixed(1)}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
