@@ -13,6 +13,7 @@ import { ConnectBankButton } from "@/components/connect-bank-button";
 import { SyncButton } from "@/components/sync-button";
 import { ConnectSplitwiseButton } from "@/components/connect-splitwise-button";
 import { SyncSplitwiseButton } from "@/components/sync-splitwise-button";
+import { ForceResyncSplitwiseButton } from "@/components/force-resync-splitwise-button";
 import { plaidEnv } from "@/lib/plaid/client";
 import { cn } from "@/lib/utils";
 
@@ -157,8 +158,9 @@ export default async function AccountsPage() {
                 ? ` · last sync ${swCred.lastSyncedAt.toLocaleString()}`
                 : ""}
             </p>
-            <div className="mt-4">
+            <div className="mt-4 flex flex-wrap gap-3">
               <SyncSplitwiseButton />
+              <ForceResyncSplitwiseButton />
             </div>
           </div>
         )}

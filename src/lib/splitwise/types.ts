@@ -31,5 +31,14 @@ export type SplitwiseExpense = {
   payment: boolean;
 };
 
+export type SplitwiseFriend = {
+  id: number;
+  first_name: string;
+  last_name: string | null;
+  email: string | null;
+  picture?: { medium?: string; large?: string; small?: string };
+};
+
 export type GetCurrentUserResponse = { user: SplitwiseUser };
 export type GetExpensesResponse = { expenses: SplitwiseExpense[] };
+export type GetFriendsResponse = { friends: SplitwiseFriend[] };

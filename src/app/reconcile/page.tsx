@@ -2,7 +2,10 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   reconciliations,
+  splitwiseCredentials,
+  splitwiseExpenseParticipants,
   splitwiseExpenses,
+  splitwiseFriends,
   transactions,
   type MatchReason,
 } from "@/lib/db/schema";
@@ -10,7 +13,7 @@ import {
   RECONCILIATION_TYPES,
   STATES,
 } from "@/lib/reconciliation/types";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import Link from "next/link";
 import { RunReconcileButton } from "@/components/run-reconcile-button";
 import { ReconcileActionButtons } from "@/components/reconcile-action-buttons";
@@ -29,10 +32,16 @@ type Row = {
   txnName: string | null;
   txnAmount: string | null;
   txnDate: string | null;
+  swExpenseId: string | null;
   swDescription: string | null;
   swCost: string | null;
   swDate: string | null;
   swUserShare: string | null;
+};
+
+type ParticipantInfo = {
+  names: string[];
+  totalCount: number;
 };
 
 async function fetchRows(userId: string): Promise<Row[]> {
@@ -48,6 +57,7 @@ async function fetchRows(userId: string): Promise<Row[]> {
       txnName: transactions.name,
       txnAmount: transactions.amount,
       txnDate: transactions.date,
+      swExpenseId: splitwiseExpenses.id,
       swDescription: splitwiseExpenses.description,
       swCost: splitwiseExpenses.cost,
       swDate: splitwiseExpenses.date,
@@ -64,14 +74,77 @@ async function fetchRows(userId: string): Promise<Row[]> {
   return rows as Row[];
 }
 
+// Builds a map from splitwise_expense.id → "other participants" info.
+// "Other" excludes the current user; up to 3 names + "+N more" tail.
+async function fetchParticipantInfo(
+  userId: string,
+  rows: Row[],
+): Promise<Map<string, ParticipantInfo>> {
+  const expenseIds = Array.from(
+    new Set(rows.map((r) => r.swExpenseId).filter((id): id is string => !!id)),
+  );
+  if (expenseIds.length === 0) return new Map();
+
+  const [cred] = await db
+    .select({ splitwiseUserId: splitwiseCredentials.splitwiseUserId })
+    .from(splitwiseCredentials)
+    .where(eq(splitwiseCredentials.userId, userId));
+  const selfId = cred?.splitwiseUserId ?? null;
+
+  const participants = await db
+    .select({
+      expenseId: splitwiseExpenseParticipants.expenseId,
+      splitwiseUserId: splitwiseExpenseParticipants.splitwiseUserId,
+    })
+    .from(splitwiseExpenseParticipants)
+    .where(inArray(splitwiseExpenseParticipants.expenseId, expenseIds));
+
+  const friends = await db
+    .select({
+      splitwiseUserId: splitwiseFriends.splitwiseUserId,
+      firstName: splitwiseFriends.firstName,
+      lastName: splitwiseFriends.lastName,
+    })
+    .from(splitwiseFriends)
+    .where(eq(splitwiseFriends.userId, userId));
+  const nameMap = new Map(
+    friends.map((f) => [
+      f.splitwiseUserId,
+      `${f.firstName ?? ""} ${f.lastName ?? ""}`.trim() ||
+        `user ${f.splitwiseUserId}`,
+    ]),
+  );
+
+  const out = new Map<string, ParticipantInfo>();
+  for (const p of participants) {
+    if (selfId !== null && p.splitwiseUserId === selfId) continue;
+    const entry = out.get(p.expenseId) ?? { names: [], totalCount: 0 };
+    entry.names.push(nameMap.get(p.splitwiseUserId) ?? `user ${p.splitwiseUserId}`);
+    entry.totalCount++;
+    out.set(p.expenseId, entry);
+  }
+  return out;
+}
+
+function renderParticipants(info: ParticipantInfo | undefined): string | null {
+  if (!info || info.totalCount === 0) return null;
+  const shown = info.names.slice(0, 3);
+  const extra = info.totalCount - shown.length;
+  const list = shown.join(", ");
+  const tail = extra > 0 ? ` +${extra} more` : "";
+  return `Split with ${list}${tail}`;
+}
+
 function Section({
   title,
   rows,
+  participants,
   showAmounts = true,
   showActions = false,
 }: {
   title: string;
   rows: Row[];
+  participants: Map<string, ParticipantInfo>;
   showAmounts?: boolean;
   showActions?: boolean;
 }) {
@@ -116,6 +189,12 @@ function Section({
                   {r.confidence && ` · ${(Number(r.confidence) * 100).toFixed(0)}%`}
                 </div>
               </div>
+              {r.swExpenseId && (() => {
+                const line = renderParticipants(participants.get(r.swExpenseId));
+                return line ? (
+                  <p className="mt-2 text-xs text-muted-foreground">{line}</p>
+                ) : null;
+              })()}
               {r.matchReasons && r.matchReasons.length > 0 && (
                 <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
                   {r.matchReasons.map((reason, i) => (
@@ -137,6 +216,7 @@ export default async function ReconcilePage() {
   if (!session?.user?.id) return null;
 
   const rows = await fetchRows(session.user.id);
+  const participants = await fetchParticipantInfo(session.user.id, rows);
 
   const matched = rows.filter(
     (r) =>
@@ -212,23 +292,43 @@ export default async function ReconcilePage() {
         </p>
       </section>
 
-      <Section title="Matched (auto)" rows={matched} />
+      <Section
+        title="Matched (auto)"
+        rows={matched}
+        participants={participants}
+      />
       <Section
         title="Reimbursements received"
         rows={reimbursed}
+        participants={participants}
         showAmounts={false}
       />
-      <Section title="Proposed (pending)" rows={proposed} showActions />
-      <Section title="Confirmed (by you)" rows={confirmed} />
-      <Section title="Splitwise-only (cash etc.)" rows={swOnly} />
+      <Section
+        title="Proposed (pending)"
+        rows={proposed}
+        participants={participants}
+        showActions
+      />
+      <Section
+        title="Confirmed (by you)"
+        rows={confirmed}
+        participants={participants}
+      />
+      <Section
+        title="Splitwise-only (cash etc.)"
+        rows={swOnly}
+        participants={participants}
+      />
       <Section
         title="Personal / unmatched"
         rows={personal}
+        participants={participants}
         showAmounts={false}
       />
       <Section
         title="Rejected (won't be re-proposed)"
         rows={rejected}
+        participants={participants}
         showAmounts={false}
       />
     </main>
