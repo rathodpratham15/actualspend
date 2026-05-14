@@ -1,21 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { auth, signOut } from "@/lib/auth";
-import { Button } from "@/components/ui/button";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+
+import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   splitwiseExpenseParticipants,
   splitwiseExpenses,
   splitwiseFriends,
 } from "@/lib/db/schema";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { usd } from "@/lib/format";
 
-function fmtUSD(n: number): string {
-  return Math.abs(n).toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-  });
-}
+import { AppHeader } from "@/components/app-header";
 
 function fmtDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
@@ -50,7 +46,6 @@ export default async function FriendPage({
     );
   if (!friend) notFound();
 
-  // Find all expenses where this friend participated.
   const friendExpenseIds = (
     await db
       .select({ expenseId: splitwiseExpenseParticipants.expenseId })
@@ -58,9 +53,6 @@ export default async function FriendPage({
       .where(eq(splitwiseExpenseParticipants.splitwiseUserId, splitwiseUserId))
   ).map((r) => r.expenseId);
 
-  // Filter to expenses scoped to the current user (the splitwise_expense rows
-  // we synced are all things this user is a party to, so the join is implicit
-  // via splitwise_expense.user_id).
   const expenses =
     friendExpenseIds.length > 0
       ? await db
@@ -84,8 +76,6 @@ export default async function FriendPage({
           .orderBy(desc(splitwiseExpenses.date))
       : [];
 
-  // Pull the friend's participant row per expense so we can show their share
-  // alongside ours on each row.
   const theirShares =
     expenses.length > 0
       ? await db
@@ -112,7 +102,6 @@ export default async function FriendPage({
     theirShares.map((s) => [s.expenseId, s]),
   );
 
-  // Aggregates
   const realExpenses = expenses.filter((e) => !e.isPayment);
   const payments = expenses.filter((e) => e.isPayment);
   const totalSpentTogether = realExpenses.reduce(
@@ -125,134 +114,118 @@ export default async function FriendPage({
     `Friend ${splitwiseUserId}`;
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-baseline gap-4">
-          <Link
-            href="/accounts"
-            className="text-sm text-muted-foreground hover:text-foreground"
-          >
-            ← Accounts
-          </Link>
-          <h1 className="text-2xl font-semibold tracking-tight">{fullName}</h1>
-        </div>
-        <form
-          action={async () => {
-            "use server";
-            await signOut({ redirectTo: "/login" });
-          }}
+    <div className="min-h-screen bg-background">
+      <AppHeader variant="app" />
+
+      <main className="max-w-3xl mx-auto px-6 pt-10 pb-24">
+        <Link
+          href="/accounts"
+          className="text-sm text-secondary hover:text-foreground"
         >
-          <Button type="submit" variant="ghost" size="sm">
-            Sign out
-          </Button>
-        </form>
-      </header>
+          ← Accounts
+        </Link>
 
-      <section className="mt-8 flex items-center gap-4">
-        {friend.pictureUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={friend.pictureUrl}
-            alt={fullName}
-            width={56}
-            height={56}
-            className="rounded-full border border-border"
-          />
-        )}
-        <div>
-          {friend.email && (
-            <p className="text-sm text-muted-foreground">{friend.email}</p>
+        <section className="mt-6 flex items-center gap-4">
+          {friend.pictureUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={friend.pictureUrl}
+              alt={fullName}
+              width={56}
+              height={56}
+              className="rounded-full border border-border"
+            />
           )}
-          <p className="mt-1 text-sm">
-            {balance > 0 ? (
-              <span className="font-medium text-emerald-700 dark:text-emerald-300">
-                Owes you {fmtUSD(balance)}
-              </span>
-            ) : balance < 0 ? (
-              <span className="font-medium text-amber-700 dark:text-amber-300">
-                You owe {fmtUSD(balance)}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">Settled up</span>
+          <div>
+            <h1 className="text-2xl tracking-tight font-medium">{fullName}</h1>
+            {friend.email && (
+              <p className="mt-1 text-sm text-secondary font-mono">
+                {friend.email}
+              </p>
             )}
-          </p>
-        </div>
-      </section>
+            <p className="mt-2 text-sm">
+              {balance > 0 ? (
+                <span className="font-medium text-emerald-accent">
+                  Owes you {usd(balance, { decimals: 2 })}
+                </span>
+              ) : balance < 0 ? (
+                <span className="font-medium text-amber-accent">
+                  You owe {usd(Math.abs(balance), { decimals: 2 })}
+                </span>
+              ) : (
+                <span className="text-secondary">Settled up</span>
+              )}
+            </p>
+          </div>
+        </section>
 
-      <section className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="rounded-md border border-border bg-card p-3">
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">
-            Spent together
-          </div>
-          <div className="mt-1 text-xl font-semibold">
-            {fmtUSD(totalSpentTogether)}
-          </div>
-        </div>
-        <div className="rounded-md border border-border bg-card p-3">
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">
-            Expenses
-          </div>
-          <div className="mt-1 text-xl font-semibold">
-            {realExpenses.length}
-          </div>
-        </div>
-        <div className="rounded-md border border-border bg-card p-3">
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">
-            Payments
-          </div>
-          <div className="mt-1 text-xl font-semibold">{payments.length}</div>
-        </div>
-      </section>
+        <section className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Stat
+            label="Spent together"
+            value={usd(totalSpentTogether, { decimals: 0 })}
+          />
+          <Stat label="Expenses" value={String(realExpenses.length)} />
+          <Stat label="Payments" value={String(payments.length)} />
+        </section>
 
-      <section className="mt-10">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Recent activity
-        </h2>
-        {expenses.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">
-            No shared expenses yet.
-          </p>
-        ) : (
-          <ul className="mt-3 space-y-3">
-            {expenses.slice(0, 50).map((e) => {
-              const theirs = theirShareByExpense.get(e.id);
-              return (
-                <li
-                  key={e.id}
-                  className="rounded-md border border-border bg-card p-3 text-sm"
-                >
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <div>
-                      <span className="font-medium">
-                        {e.description || "(no description)"}
-                      </span>
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {fmtDate(e.date)}
-                      </span>
-                      {e.isPayment && (
-                        <span className="ml-2 rounded-md bg-muted px-1.5 py-0.5 text-[11px] uppercase tracking-wider text-muted-foreground">
-                          payment
+        <section className="mt-10">
+          <div className="text-[11px] uppercase tracking-widest text-secondary mb-4">
+            Recent activity
+          </div>
+          {expenses.length === 0 ? (
+            <p className="text-sm text-secondary">No shared expenses yet.</p>
+          ) : (
+            <ul className="bg-surface border border-border rounded-xl divide-y divide-border">
+              {expenses.slice(0, 50).map((e) => {
+                const theirs = theirShareByExpense.get(e.id);
+                return (
+                  <li key={e.id} className="px-5 py-3 text-sm">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <div className="flex items-baseline gap-2">
+                        <span className="font-medium">
+                          {e.description || "(no description)"}
                         </span>
-                      )}
+                        <span className="text-xs text-secondary font-mono">
+                          {fmtDate(e.date)}
+                        </span>
+                        {e.isPayment && (
+                          <span className="rounded-md bg-secondary px-1.5 py-0.5 text-[11px] uppercase tracking-wider text-secondary">
+                            payment
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-secondary font-mono">
+                        bill {usd(Number(e.cost), { decimals: 2 })} · you paid{" "}
+                        {usd(Number(e.paidByUser), { decimals: 2 })} / owe{" "}
+                        {usd(Number(e.userShare), { decimals: 2 })}
+                        {theirs && (
+                          <>
+                            {" · "}they paid{" "}
+                            {usd(Number(theirs.paidShare), { decimals: 2 })} /
+                            owe{" "}
+                            {usd(Number(theirs.owedShare), { decimals: 2 })}
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      bill {fmtUSD(Number(e.cost))} · you paid{" "}
-                      {fmtUSD(Number(e.paidByUser))} / owe{" "}
-                      {fmtUSD(Number(e.userShare))}
-                      {theirs && (
-                        <>
-                          {" · "}they paid {fmtUSD(Number(theirs.paidShare))} /
-                          owe {fmtUSD(Number(theirs.owedShare))}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-    </main>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-surface border border-border rounded-xl px-5 py-4">
+      <div className="text-[11px] uppercase tracking-wider text-secondary">
+        {label}
+      </div>
+      <div className="mt-2 font-mono text-2xl">{value}</div>
+    </div>
   );
 }
