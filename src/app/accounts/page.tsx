@@ -12,6 +12,7 @@ import { plaidEnv } from "@/lib/plaid/client";
 import { computeBankStats } from "@/lib/dashboard/counts";
 
 import { AppHeader } from "@/components/app-header";
+import { BalancesPanel } from "@/components/balances-panel";
 import { ConnectBankButton } from "@/components/connect-bank-button";
 import { SyncButton } from "@/components/sync-button";
 import { ConnectSplitwiseButton } from "@/components/connect-splitwise-button";
@@ -179,6 +180,15 @@ export default async function AccountsPage() {
             </>
           )}
         </section>
+
+        {swCred && (
+          <section className="mt-16">
+            <h2 className="text-xl tracking-tight font-medium">
+              Who owes whom
+            </h2>
+            <BalancesPanel userId={user.id} />
+          </section>
+        )}
       </main>
     </div>
   );

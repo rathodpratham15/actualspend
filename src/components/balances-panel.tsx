@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { and, eq, sql } from "drizzle-orm";
+
 import { db } from "@/lib/db";
 import { splitwiseFriends } from "@/lib/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { usd } from "@/lib/format";
 
 type Friend = {
   splitwiseUserId: number;
@@ -9,14 +11,6 @@ type Friend = {
   lastName: string | null;
   balance: string;
 };
-
-function fmtUSD(n: number): string {
-  return Math.abs(n).toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  });
-}
 
 function displayName(f: Friend): string {
   return (
@@ -44,68 +38,69 @@ export async function BalancesPanel({ userId }: { userId: string }) {
 
   if (rows.length === 0) {
     return (
-      <p className="mt-3 text-sm text-muted-foreground">
+      <div className="mt-6 bg-surface border border-border rounded-xl px-5 py-4 text-sm text-secondary">
         No outstanding balances — everyone&apos;s settled up.
-      </p>
+      </div>
     );
   }
 
   const owedToYou = rows.filter((r) => Number(r.balance) > 0);
   const youOwe = rows.filter((r) => Number(r.balance) < 0);
   const totalOwedToYou = owedToYou.reduce((s, r) => s + Number(r.balance), 0);
-  const totalYouOwe = youOwe.reduce((s, r) => s + Math.abs(Number(r.balance)), 0);
+  const totalYouOwe = youOwe.reduce(
+    (s, r) => s + Math.abs(Number(r.balance)),
+    0,
+  );
 
   return (
-    <div className="mt-3">
-      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="rounded-md border border-border bg-card p-3">
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">
+    <div className="mt-6 space-y-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="bg-surface border border-border rounded-xl px-5 py-4">
+          <div className="text-[11px] uppercase tracking-wider text-secondary">
             Owed to you
           </div>
-          <div className="mt-1 text-xl font-semibold text-emerald-700 dark:text-emerald-300">
-            {fmtUSD(totalOwedToYou)}
+          <div className="mt-2 font-mono text-2xl text-emerald-accent">
+            {usd(totalOwedToYou, { decimals: 0 })}
           </div>
-          <div className="text-xs text-muted-foreground">
-            across {owedToYou.length} {owedToYou.length === 1 ? "person" : "people"}
+          <div className="mt-1 text-xs text-secondary">
+            across {owedToYou.length}{" "}
+            {owedToYou.length === 1 ? "person" : "people"}
           </div>
         </div>
-        <div className="rounded-md border border-border bg-card p-3">
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">
+        <div className="bg-surface border border-border rounded-xl px-5 py-4">
+          <div className="text-[11px] uppercase tracking-wider text-secondary">
             You owe
           </div>
-          <div className="mt-1 text-xl font-semibold text-amber-700 dark:text-amber-300">
-            {fmtUSD(totalYouOwe)}
+          <div className="mt-2 font-mono text-2xl text-amber-accent">
+            {usd(totalYouOwe, { decimals: 0 })}
           </div>
-          <div className="text-xs text-muted-foreground">
-            across {youOwe.length} {youOwe.length === 1 ? "person" : "people"}
+          <div className="mt-1 text-xs text-secondary">
+            across {youOwe.length}{" "}
+            {youOwe.length === 1 ? "person" : "people"}
           </div>
         </div>
       </div>
 
-      <ul className="space-y-1.5 text-sm">
+      <ul className="bg-surface border border-border rounded-xl divide-y divide-border">
         {rows.map((r) => {
           const amt = Number(r.balance);
           const isOwedToYou = amt > 0;
           return (
             <li
               key={r.splitwiseUserId}
-              className="flex items-baseline justify-between"
+              className="px-5 py-3 flex items-baseline justify-between text-sm"
             >
               <Link
                 href={`/friends/${r.splitwiseUserId}`}
-                className="underline-offset-2 hover:underline"
+                className="hover:text-foreground"
               >
                 {displayName(r)}
               </Link>
               <span
-                className={
-                  isOwedToYou
-                    ? "font-medium text-emerald-700 dark:text-emerald-300"
-                    : "font-medium text-amber-700 dark:text-amber-300"
-                }
+                className={`font-mono ${isOwedToYou ? "text-emerald-accent" : "text-amber-accent"}`}
               >
                 {isOwedToYou ? "owes you " : "you owe "}
-                {fmtUSD(amt)}
+                {usd(Math.abs(amt), { decimals: 0 })}
               </span>
             </li>
           );
