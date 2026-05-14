@@ -9,6 +9,9 @@ type RunResult = {
   proposed: number;
   splitwiseOnly: number;
   unmatched: number;
+  reimbursementsAuto: number;
+  reimbursementsProposed: number;
+  unmatchedInflows: number;
   coverageStart: string | null;
   coverageEnd: string | null;
   swSkippedOutOfWindow: number;
@@ -42,8 +45,10 @@ export function RunReconcileButton() {
         </Button>
         {last && (
           <span className="text-sm text-muted-foreground">
-            auto {last.autoMatched} · proposed {last.proposed} · splitwise-only{" "}
-            {last.splitwiseOnly} · unmatched {last.unmatched}
+            outflows: auto {last.autoMatched} · proposed {last.proposed} · sw-only{" "}
+            {last.splitwiseOnly} · unmatched {last.unmatched} · inflows: reimb{" "}
+            {last.reimbursementsAuto} · proposed {last.reimbursementsProposed} ·
+            unmatched {last.unmatchedInflows}
           </span>
         )}
       </div>

@@ -43,6 +43,9 @@ export type ReconcileResult = {
   proposed: number;
   splitwiseOnly: number;
   unmatched: number;
+  reimbursementsAuto: number;
+  reimbursementsProposed: number;
+  unmatchedInflows: number;
   coverageStart: string | null;
   coverageEnd: string | null;
   swSkippedOutOfWindow: number;
@@ -209,11 +212,65 @@ export async function reconcileForUser(
     swSkippedOutOfWindow = count;
   }
 
+  // 3b. Pull bank inflows (Plaid convention: negative amount) in the same
+  // coverage window. Filter out locked txns. Inflows are matched against
+  // Splitwise PAYMENT records (is_payment = true) where the user is on the
+  // receiving end (paid_by_user = 0, user_share > 0).
+  const allInflows = (await db
+    .select({
+      id: transactions.id,
+      amount: transactions.amount,
+      date: transactions.date,
+      name: transactions.name,
+      isoCurrencyCode: transactions.isoCurrencyCode,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        isNull(transactions.deletedAt),
+        sql`${transactions.amount}::numeric < 0`,
+      ),
+    )) as BankTxn[];
+  const inflows = allInflows.filter((t) => !lockedTxnIds.has(t.id));
+
+  const paymentRecords =
+    coverageStart && coverageEnd
+      ? ((await db
+          .select({
+            id: splitwiseExpenses.id,
+            cost: splitwiseExpenses.cost,
+            date: splitwiseExpenses.date,
+            description: splitwiseExpenses.description,
+            currencyCode: splitwiseExpenses.currencyCode,
+            paidByUser: splitwiseExpenses.paidByUser,
+            userShare: splitwiseExpenses.userShare,
+          })
+          .from(splitwiseExpenses)
+          .where(
+            and(
+              eq(splitwiseExpenses.userId, userId),
+              isNull(splitwiseExpenses.deletedAt),
+              eq(splitwiseExpenses.isPayment, true),
+              sql`${splitwiseExpenses.paidByUser}::numeric = 0`,
+              sql`${splitwiseExpenses.userShare}::numeric > 0`,
+              gte(splitwiseExpenses.date, coverageStart),
+              lte(splitwiseExpenses.date, coverageEnd),
+            ),
+          )) as SwExpense[])
+      : [];
+  const paymentCandidates = paymentRecords.filter(
+    (e) => !claimedSwIdsByUser.has(e.id),
+  );
+
   const result: ReconcileResult = {
     autoMatched: 0,
     proposed: 0,
     splitwiseOnly: 0,
     unmatched: 0,
+    reimbursementsAuto: 0,
+    reimbursementsProposed: 0,
+    unmatchedInflows: 0,
     coverageStart,
     coverageEnd,
     swSkippedOutOfWindow,
@@ -294,6 +351,66 @@ export async function reconcileForUser(
         actualAmount: txnAmt,
       });
       result.unmatched++;
+    }
+  }
+
+  // 3c. Inflow pass — match bank inflows against Splitwise payment records
+  // (someone paid the user back). Score using the same function; treat the
+  // inflow's magnitude as the bank amount. Reimbursements set
+  // actual_amount = 0 (the inflow cancels prior spend, no new spend).
+  const claimedPaymentSwIds = new Set<string>();
+  for (const inflow of inflows) {
+    const inflowMagnitude = Math.abs(Number(inflow.amount));
+    let best:
+      | { exp: SwExpense; score: number; reasons: MatchReason[] }
+      | null = null;
+
+    for (const exp of paymentCandidates) {
+      if (claimedPaymentSwIds.has(exp.id)) continue;
+      const days = Math.round(
+        Math.abs(
+          new Date(inflow.date).getTime() - new Date(exp.date).getTime(),
+        ) / 86_400_000,
+      );
+      if (days > DATE_WINDOW_DAYS) continue;
+
+      const s = scoreCandidate(
+        { amount: inflowMagnitude, date: inflow.date, name: inflow.name },
+        {
+          // Match against the user's owed share — that's the amount the
+          // payment record represents for our user.
+          cost: Number(exp.userShare),
+          date: exp.date,
+          description: exp.description,
+        },
+      );
+      if (s.score > (best?.score ?? 0)) {
+        best = { exp, score: s.score, reasons: s.reasons };
+      }
+    }
+
+    if (best && best.score >= THRESHOLDS.PROPOSE) {
+      const isAuto = best.score >= THRESHOLDS.AUTO_MATCH;
+      claimedPaymentSwIds.add(best.exp.id);
+      await writeGroup(userId, {
+        transactions: [inflow],
+        splitwiseExpenses: [best.exp],
+        reconciliationType: RECONCILIATION_TYPES.REIMBURSEMENT_RECEIVED,
+        state: isAuto ? STATES.AUTO_MATCHED : STATES.PENDING,
+        confidence: best.score,
+        reasons: best.reasons,
+        // Reimbursements don't add to actual spend — they unwind a prior
+        // outflow. Track 0 here so summing actualAmount stays correct.
+        actualAmount: 0,
+      });
+      if (isAuto) result.reimbursementsAuto++;
+      else result.reimbursementsProposed++;
+    } else {
+      // Inflow with no Splitwise counterpart. Could be a paycheck, transfer
+      // from yourself, or an un-recorded reimbursement. We don't write a
+      // reconciliation row for unmatched inflows in v1 — they're just
+      // ignored by the actual-spend math (because they're inflows).
+      result.unmatchedInflows++;
     }
   }
 

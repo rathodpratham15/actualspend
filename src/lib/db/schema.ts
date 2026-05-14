@@ -181,6 +181,9 @@ export const splitwiseExpenses = pgTable(
     paidByUser: numeric("paid_by_user", { precision: 12, scale: 2 }).notNull(),
     date: date("date").notNull(),
     groupId: integer("group_id"),
+    // True for Splitwise settlement records ("Payment from X"). These match
+    // bank inflows for REIMBURSEMENT_RECEIVED, not bank outflows.
+    isPayment: boolean("is_payment").notNull().default(false),
     deletedAt: timestamp("deleted_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },

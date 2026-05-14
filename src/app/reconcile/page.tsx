@@ -143,6 +143,11 @@ export default async function ReconcilePage() {
       r.recType === RECONCILIATION_TYPES.FRONTED_SHARED_EXPENSE &&
       r.state === STATES.AUTO_MATCHED,
   );
+  const reimbursed = rows.filter(
+    (r) =>
+      r.recType === RECONCILIATION_TYPES.REIMBURSEMENT_RECEIVED &&
+      r.state === STATES.AUTO_MATCHED,
+  );
   const proposed = rows.filter((r) => r.state === STATES.PENDING);
   const confirmed = rows.filter((r) => r.state === STATES.USER_CONFIRMED);
   const rejected = rows.filter((r) => r.state === STATES.USER_REJECTED);
@@ -208,6 +213,11 @@ export default async function ReconcilePage() {
       </section>
 
       <Section title="Matched (auto)" rows={matched} />
+      <Section
+        title="Reimbursements received"
+        rows={reimbursed}
+        showAmounts={false}
+      />
       <Section title="Proposed (pending)" rows={proposed} showActions />
       <Section title="Confirmed (by you)" rows={confirmed} />
       <Section title="Splitwise-only (cash etc.)" rows={swOnly} />

@@ -48,6 +48,7 @@ export async function syncSplitwiseExpenses(userId: string): Promise<number> {
         paidByUser: me.paid_share,
         date: exp.date.slice(0, 10),
         groupId: exp.group_id,
+        isPayment: exp.payment === true,
         deletedAt: exp.deleted_at ? new Date(exp.deleted_at) : null,
       };
 
@@ -64,6 +65,7 @@ export async function syncSplitwiseExpenses(userId: string): Promise<number> {
             paidByUser: row.paidByUser,
             date: row.date,
             groupId: row.groupId,
+            isPayment: row.isPayment,
             deletedAt: row.deletedAt,
           },
         });
