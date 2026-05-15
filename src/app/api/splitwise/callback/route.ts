@@ -6,6 +6,7 @@ import { splitwiseCredentials } from "@/lib/db/schema";
 import { splitwiseFetch } from "@/lib/splitwise/client";
 import { syncSplitwiseExpenses } from "@/lib/splitwise/sync";
 import type { GetCurrentUserResponse } from "@/lib/splitwise/types";
+import { encryptSecret } from "@/lib/crypto";
 
 const TOKEN_URL = "https://secure.splitwise.com/oauth/token";
 
@@ -61,17 +62,18 @@ export async function GET(req: Request) {
     access_token,
   );
 
+  const encrypted = encryptSecret(access_token);
   await db
     .insert(splitwiseCredentials)
     .values({
       userId: session.user.id,
-      accessToken: access_token,
+      accessToken: encrypted,
       splitwiseUserId: me.user.id,
     })
     .onConflictDoUpdate({
       target: splitwiseCredentials.userId,
       set: {
-        accessToken: access_token,
+        accessToken: encrypted,
         splitwiseUserId: me.user.id,
         lastSyncedAt: null, // force a full re-pull on first sync
       },
