@@ -76,9 +76,6 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
       <NavLink href="/privacy" testid="nav-privacy" onClick={close}>
         Privacy
       </NavLink>
-      <NavLink href="/changelog" testid="nav-changelog" onClick={close}>
-        Changelog
-      </NavLink>
       <Link
         href="/login"
         data-testid="nav-login"
@@ -97,9 +94,6 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
     <>
       <NavLink href="/privacy" testid="nav-privacy" onClick={close}>
         Privacy
-      </NavLink>
-      <NavLink href="/changelog" testid="nav-changelog" onClick={close}>
-        Changelog
       </NavLink>
       <Link
         href="/login"

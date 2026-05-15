@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 // Auth-gating proxy.
 //
 // Pass-through (no auth needed): /login, /welcome, /privacy, /terms,
-// /security, /changelog, /api/auth/*, /api/plaid/webhook, /api/health,
+// /security, /api/auth/*, /api/plaid/webhook, /api/health,
 // Sentry tunnel (/monitoring), and static assets.
 //
 // Behavior for unauthenticated requests that hit a protected route:
@@ -20,6 +20,6 @@ export default auth((req) => {
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/plaid/webhook|api/health|login|welcome|privacy|terms|security|changelog|_next/static|_next/image|favicon.ico|monitoring).*)",
+    "/((?!api/auth|api/plaid/webhook|api/health|login|welcome|privacy|terms|security|_next/static|_next/image|favicon.ico|monitoring).*)",
   ],
 };

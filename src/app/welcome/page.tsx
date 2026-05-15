@@ -339,17 +339,14 @@ export default function WelcomePage() {
             <Link href="/security" className="hover:text-foreground">
               Privacy
             </Link>
-            <Link href="/security" className="hover:text-foreground">
+            <Link href="/terms" className="hover:text-foreground">
               Terms
             </Link>
             <Link href="/security" className="hover:text-foreground">
               Security
             </Link>
-            <Link href="/changelog" className="hover:text-foreground">
-              Changelog
-            </Link>
           </div>
-          <div className="font-mono">contact@actualspend.app</div>
+          <div className="font-mono">rathod.pr@northeastern.edu</div>
         </div>
         <div className="max-w-3xl mx-auto px-6 pb-10 text-xs text-secondary">
           Built by an indie developer.
