@@ -73,7 +73,7 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
   // for emphasis.
   const marketingLinksDesktop = (
     <>
-      <NavLink href="/privacy" testid="nav-privacy" onClick={close}>
+      <NavLink href="/security" testid="nav-privacy" onClick={close}>
         Privacy
       </NavLink>
       <Link
@@ -92,7 +92,7 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
   // than punching out as a solid white block on a dark background.
   const marketingLinksMobile = (
     <>
-      <NavLink href="/privacy" testid="nav-privacy" onClick={close}>
+      <NavLink href="/security" testid="nav-privacy" onClick={close}>
         Privacy
       </NavLink>
       <Link

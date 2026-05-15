@@ -342,9 +342,6 @@ export default function WelcomePage() {
             <Link href="/terms" className="hover:text-foreground">
               Terms
             </Link>
-            <Link href="/security" className="hover:text-foreground">
-              Security
-            </Link>
           </div>
           <div className="font-mono">rathod.pr@northeastern.edu</div>
         </div>
