@@ -24,6 +24,7 @@ import { ReconSection } from "@/components/recon-section";
 import { ReconAwaitingCard } from "@/components/recon-awaiting-card";
 import { SubtractionBlock } from "@/components/subtraction-block";
 import { RunReconcileButton } from "@/components/run-reconcile-button";
+import { MarkSharedForm } from "@/components/mark-shared-form";
 
 type Row = {
   recId: string;
@@ -397,27 +398,48 @@ export default async function ReconcilePage() {
           {personal.length === 0 ? (
             <p className="text-sm text-secondary">None.</p>
           ) : (
-            personal.map((r) => (
-              <div
-                key={r.recId}
-                data-testid={`personal-${r.recId}`}
-                className="bg-surface border border-border rounded-xl p-4"
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <div className="text-xs font-mono text-secondary">
-                      {r.txnDate ? dateShort(r.txnDate) : "—"}
+            personal.map((r) => {
+              const bankAmt = Number(r.txnAmount ?? 0);
+              const actual = Number(r.actualAmount);
+              const overridden =
+                r.state === "MANUAL_MATCH" &&
+                Math.abs(actual - bankAmt) > 0.005;
+              return (
+                <div
+                  key={r.recId}
+                  data-testid={`personal-${r.recId}`}
+                  className="bg-surface border border-border rounded-xl p-4"
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-xs font-mono text-secondary">
+                        {r.txnDate ? dateShort(r.txnDate) : "—"}
+                      </div>
+                      <div className="text-[15px]">
+                        {r.txnName ?? "(no description)"}
+                      </div>
                     </div>
-                    <div className="text-[15px]">
-                      {r.txnName ?? "(no description)"}
+                    <div className="text-right font-mono text-sm">
+                      {overridden ? (
+                        <>
+                          <div>{usd(-actual, { decimals: 2 })}</div>
+                          <div className="text-xs text-secondary line-through">
+                            {usd(-bankAmt, { decimals: 2 })}
+                          </div>
+                        </>
+                      ) : (
+                        usd(-bankAmt, { decimals: 2 })
+                      )}
                     </div>
                   </div>
-                  <div className="font-mono text-sm">
-                    {usd(-Number(r.txnAmount ?? 0), { decimals: 2 })}
-                  </div>
+                  <MarkSharedForm
+                    reconId={r.recId}
+                    defaultAmount={overridden ? actual : bankAmt}
+                    bankAmount={bankAmt}
+                  />
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </ReconSection>
       </main>
