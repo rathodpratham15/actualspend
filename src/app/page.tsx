@@ -132,10 +132,10 @@ export default async function DashboardPage({
         </div>
       )}
 
-      <main className="max-w-5xl mx-auto px-6 pt-8 pb-24">
-        <div className="flex items-center justify-between mb-8">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-24">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
           <div
-            className="text-sm text-secondary font-mono"
+            className="text-sm text-secondary font-mono truncate"
             data-testid="user-email"
           >
             {user.email}

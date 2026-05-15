@@ -43,13 +43,13 @@ export function DashboardHero({
   return (
     <section
       data-testid="dashboard-hero"
-      className="bg-surface border border-border rounded-xl p-8 sm:p-10"
+      className="bg-surface border border-border rounded-xl p-5 sm:p-10"
     >
       <div className="text-[11px] uppercase tracking-widest text-secondary">
         Actual personal spend · {periodLabel}
       </div>
 
-      <div className="mt-5 font-mono text-emerald-accent tracking-tight text-6xl sm:text-7xl">
+      <div className="mt-5 font-mono text-emerald-accent tracking-tight text-4xl sm:text-7xl break-all">
         $
         {live.toLocaleString("en-US", {
           maximumFractionDigits: 2,
@@ -87,7 +87,7 @@ export function DashboardHero({
         </p>
       )}
 
-      <div className="mt-10 pt-8 border-t border-border grid grid-cols-1 sm:grid-cols-3 gap-8">
+      <div className="mt-8 sm:mt-10 pt-6 sm:pt-8 border-t border-border grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8">
         <Metric
           label="Bank outflow"
           value={usd(metrics.bankSpent, { decimals: 0 })}

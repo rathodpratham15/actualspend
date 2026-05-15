@@ -33,9 +33,9 @@ export function ReconCard({
   return (
     <div
       data-testid={`recon-card-${pair.id}`}
-      className={`bg-surface border border-border ${BORDER_FOR_STATE[state]} border-l-2 rounded-xl p-5`}
+      className={`bg-surface border border-border ${BORDER_FOR_STATE[state]} border-l-2 rounded-xl p-4 sm:p-5`}
     >
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-5 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 sm:gap-5 items-start">
         <div>
           <div className="text-[11px] uppercase tracking-wider text-secondary mb-2">
             Bank transaction
@@ -87,14 +87,14 @@ export function ReconCard({
         ))}
       </div>
 
-      <div className="mt-4 flex items-center justify-between">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="font-mono text-xs text-secondary">
           Engine confidence{" "}
           <span className="text-foreground ml-1">{pair.confidence}%</span>
         </div>
 
         {state === "awaiting" && (
-          <div className="flex items-center gap-2 relative">
+          <div className="flex flex-wrap items-center gap-2 relative">
             <button
               type="button"
               data-testid={`reject-${pair.id}`}

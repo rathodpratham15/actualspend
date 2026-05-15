@@ -57,7 +57,7 @@ export function MarkSharedForm({
         variant="ghost"
         size="sm"
         onClick={() => setOpen(true)}
-        className="text-xs text-secondary hover:text-foreground"
+        className="mt-2 text-xs text-secondary hover:text-foreground"
       >
         Mark as shared
       </Button>
@@ -66,33 +66,40 @@ export function MarkSharedForm({
 
   return (
     <div className="mt-2 flex flex-wrap items-baseline gap-2 text-sm">
-      <span className="text-secondary">My share:</span>
-      <span className="text-secondary">$</span>
-      <input
-        type="number"
-        step="0.01"
-        min="0"
-        max={bankAmount}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        autoFocus
-        className="w-24 rounded border border-border bg-background px-2 py-0.5 text-sm font-mono"
-      />
-      <Button size="sm" onClick={submit} disabled={busy}>
-        {busy ? "Saving…" : "Save"}
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={() => {
-          setOpen(false);
-          setErr(null);
-        }}
-        disabled={busy}
-      >
-        Cancel
-      </Button>
-      {err && <span className="text-xs text-amber-accent">{err}</span>}
+      <span className="text-secondary shrink-0">My share:</span>
+      <div className="flex items-baseline gap-1 shrink-0">
+        <span className="text-secondary">$</span>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          max={bankAmount}
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          autoFocus
+          className="w-24 rounded border border-border bg-background px-2 py-0.5 text-sm font-mono"
+        />
+      </div>
+      <div className="flex items-center gap-2 ml-auto">
+        <Button size="sm" onClick={submit} disabled={busy}>
+          {busy ? "Saving…" : "Save"}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            setOpen(false);
+            setErr(null);
+          }}
+          disabled={busy}
+        >
+          Cancel
+        </Button>
+      </div>
+      {err && (
+        <span className="basis-full text-xs text-amber-accent">{err}</span>
+      )}
     </div>
   );
 }

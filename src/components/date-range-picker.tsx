@@ -176,16 +176,16 @@ export function DateRangePicker({
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className="w-auto p-0 bg-surface border-border"
+        className="w-auto max-w-[calc(100vw-2rem)] p-0 bg-surface border-border"
       >
-        <div className="flex">
-          <div className="border-r border-border p-2 w-40">
+        <div className="flex flex-col sm:flex-row">
+          <div className="border-b sm:border-b-0 sm:border-r border-border p-2 sm:w-40 flex sm:block overflow-x-auto">
             {PRESETS.map((p) => (
               <button
                 key={p}
                 data-testid={`preset-${p.toLowerCase().replace(/\s+/g, "-")}`}
                 onClick={() => applyPreset(p)}
-                className={`w-full text-left text-sm px-2 py-1.5 rounded hover:bg-secondary transition-colors ${
+                className={`shrink-0 sm:w-full text-left text-sm px-2 py-1.5 rounded hover:bg-secondary transition-colors whitespace-nowrap ${
                   p === preset ? "text-foreground" : "text-secondary"
                 }`}
               >
@@ -196,7 +196,7 @@ export function DateRangePicker({
           <div className="p-2">
             <Calendar
               mode="range"
-              numberOfMonths={2}
+              numberOfMonths={1}
               selected={range}
               onSelect={(r) => {
                 if (r?.from && r?.to) {
