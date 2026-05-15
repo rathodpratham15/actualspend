@@ -285,7 +285,7 @@ export default async function ReconcilePage() {
     <div className="min-h-screen bg-background">
       <AppHeader variant="app" />
 
-      <main className="max-w-3xl mx-auto px-6 pt-10 pb-24">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10 pb-24">
         <div className="flex items-center justify-between">
           <h1 className="text-xl tracking-tight font-medium">Review</h1>
           <RunReconcileButton />

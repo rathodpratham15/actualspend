@@ -72,10 +72,10 @@ export default async function AccountsPage() {
     <div className="min-h-screen bg-background">
       <AppHeader variant="app" />
 
-      <main className="max-w-3xl mx-auto px-6 pt-10 pb-24">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10 pb-24">
         <section className="mb-16">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <div className="flex items-center gap-2">
               <h1 className="text-xl tracking-tight font-medium">
                 Bank accounts
               </h1>
@@ -114,10 +114,10 @@ export default async function AccountsPage() {
                     <div
                       key={it.id}
                       data-testid={`bank-row-${(it.institutionName ?? it.id).toLowerCase()}`}
-                      className="px-5 py-4 flex items-center justify-between"
+                      className="px-4 sm:px-5 py-4 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"
                     >
-                      <div>
-                        <div className="text-[15px] font-medium">
+                      <div className="min-w-0">
+                        <div className="text-[15px] font-medium truncate">
                           {it.institutionName ?? "Connected bank"}
                         </div>
                         <div className="mt-1 text-xs text-secondary font-mono">
@@ -129,14 +129,16 @@ export default async function AccountsPage() {
                       {needsReauth ? (
                         <span
                           data-testid={`reauth-${(it.institutionName ?? it.id).toLowerCase()}`}
-                          className="text-sm text-amber-accent"
+                          className="text-sm text-amber-accent shrink-0"
                         >
                           {it.errorCode === "ITEM_LOGIN_REQUIRED"
                             ? "Re-auth required"
                             : it.errorCode}
                         </span>
                       ) : (
-                        <span className="text-xs text-secondary">Healthy</span>
+                        <span className="text-xs text-secondary shrink-0">
+                          Healthy
+                        </span>
                       )}
                     </div>
                   );
@@ -164,15 +166,15 @@ export default async function AccountsPage() {
             </div>
           ) : (
             <>
-              <div className="mt-6 bg-surface border border-border rounded-xl px-5 py-4 flex items-center justify-between">
-                <div>
+              <div className="mt-6 bg-surface border border-border rounded-xl px-4 sm:px-5 py-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+                <div className="min-w-0">
                   <div className="text-[15px] font-medium">Connected</div>
                   <div className="mt-1 text-xs text-secondary font-mono">
                     {swCount} expense{swCount === 1 ? "" : "s"} · last sync{" "}
                     {relative(swCred.lastSyncedAt ?? null)}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <SyncSplitwiseButton />
                   <ForceResyncSplitwiseButton />
                 </div>

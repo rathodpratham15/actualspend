@@ -6,7 +6,7 @@ export default function SecurityPage() {
       <AppHeader variant="marketing" />
 
       <main className="max-w-2xl mx-auto px-6 pt-16 pb-24">
-        <h1 className="text-3xl tracking-tight font-medium">Security</h1>
+        <h1 className="text-3xl tracking-tight font-medium">Privacy</h1>
         <p className="mt-6 text-secondary leading-relaxed">
           ActualSpend stores the minimum amount of data required to reconcile
           transactions against shared expenses.

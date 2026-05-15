@@ -235,30 +235,6 @@ export const personalUnmatched = [
   },
 ];
 
-export const changelogEntries: { date: string; items: string[] }[] = [
-  {
-    date: "2026-04-18",
-    items: [
-      "Added reimbursement pending detection for unmatched Venmo deposits.",
-      "Improved Splitwise transaction matching for partial repayments.",
-    ],
-  },
-  {
-    date: "2026-03-29",
-    items: [
-      "Dashboard category breakdown now excludes roommate reimbursements from dining totals.",
-      "Date range picker gains a year-to-date preset.",
-    ],
-  },
-  {
-    date: "2026-03-04",
-    items: [
-      "Initial Plaid integration launched in beta.",
-      "Splitwise OAuth flow live for invited users.",
-    ],
-  },
-];
-
 export const faqs: { q: string; a: string }[] = [
   {
     q: "Is my bank data safe?",
