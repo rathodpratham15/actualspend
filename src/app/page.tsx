@@ -226,28 +226,45 @@ function CategorySection({ rows }: { rows: CategoryBreakdown[] }) {
                 </div>
               </summary>
               <ul className="mt-3 pl-5 space-y-1.5 text-sm">
-                {r.txns.map((t) => (
-                  <li
-                    key={t.id}
-                    className="flex items-baseline justify-between gap-2"
-                  >
-                    <span className="flex items-baseline gap-2 min-w-0">
-                      <span className="text-xs text-secondary font-mono shrink-0">
-                        {fmtTxnDate(t.date)}
+                {r.txns.map((t) => {
+                  const bankLabel = t.merchantName || t.name;
+                  // When a Splitwise match named the actual store (e.g.
+                  // "Apne Bazaar" for "IC* INSTACART"), show that as the
+                  // primary label and keep the raw bank text as a smaller
+                  // subtitle so the user can still recognize the charge.
+                  const primary = t.swDescription || bankLabel;
+                  const subtitle =
+                    t.swDescription && t.swDescription !== bankLabel
+                      ? bankLabel
+                      : null;
+                  return (
+                    <li
+                      key={t.id}
+                      className="flex items-baseline justify-between gap-2"
+                    >
+                      <span className="flex items-baseline gap-2 min-w-0">
+                        <span className="text-xs text-secondary font-mono shrink-0">
+                          {fmtTxnDate(t.date)}
+                        </span>
+                        <span className="truncate">
+                          {primary}
+                          {subtitle && (
+                            <span className="ml-2 text-xs text-secondary">
+                              ({subtitle})
+                            </span>
+                          )}
+                        </span>
                       </span>
-                      <span className="truncate">
-                        {t.merchantName || t.name}
+                      <span className="font-mono text-xs">
+                        $
+                        {t.amount.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
                       </span>
-                    </span>
-                    <span className="font-mono text-xs">
-                      $
-                      {t.amount.toLocaleString("en-US", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </span>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             </details>
           );

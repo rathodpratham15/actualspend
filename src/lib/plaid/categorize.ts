@@ -129,7 +129,9 @@ const DETAILED_MAP: Record<string, string> = {
   LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT: "EDUCATION",
   LOAN_PAYMENTS_CAR_PAYMENT: "TRANSPORT",
   LOAN_PAYMENTS_MORTGAGE_PAYMENT: "RENT",
-  LOAN_PAYMENTS_CREDIT_CARD_PAYMENT: "TRANSFER",
+  // Internal: paying off a credit card from bank. The actual purchases
+  // show up on the linked credit card account; this is just settling debt.
+  LOAN_PAYMENTS_CREDIT_CARD_PAYMENT: "CC_PAYMENT",
   LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT: "FEES",
   LOAN_PAYMENTS_OTHER_PAYMENT: "FEES",
 
