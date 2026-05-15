@@ -87,9 +87,11 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
     </>
   );
 
-  // Mobile drawer marketing nav — Sign in uses an outlined/ghost style so
-  // it blends with the drawer's surface in both light and dark mode rather
-  // than punching out as a solid white block on a dark background.
+  // Mobile drawer marketing nav — Sign in is rendered as a plain text link
+  // matching the other items in the drawer. The desktop nav keeps the
+  // boxed inverse CTA; in the drawer that styling reads as an "active
+  // page" indicator and misleads users into thinking they're on the
+  // Sign-in page.
   const marketingLinksMobile = (
     <>
       <NavLink href="/security" testid="nav-privacy" onClick={close}>
@@ -99,7 +101,7 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
         href="/login"
         data-testid="nav-login"
         onClick={close}
-        className="mt-1 inline-flex items-center h-9 px-3 rounded-md border border-border text-sm hover:bg-secondary transition-colors"
+        className={`${navItem} text-foreground`}
       >
         Sign in
       </Link>
