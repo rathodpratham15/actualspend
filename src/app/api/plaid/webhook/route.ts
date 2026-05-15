@@ -2,21 +2,11 @@ import { db } from "@/lib/db";
 import { plaidItems } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { runPlaidSync } from "@/lib/plaid/sync";
+import { verifyPlaidWebhook } from "@/lib/plaid/webhook-verify";
 
 // Plaid webhook receiver. Set this URL in your Plaid dashboard under
 // Team Settings → Webhooks. Public dev tunneling (e.g. ngrok) is required
 // since localhost isn't reachable from Plaid's servers.
-//
-// We handle the most useful events:
-//
-//  - TRANSACTIONS / SYNC_UPDATES_AVAILABLE   → trigger sync for that item
-//  - ITEM / ERROR (ITEM_LOGIN_REQUIRED etc.) → persist error_code so the UI
-//                                              can surface a re-link prompt
-//  - ITEM / PENDING_EXPIRATION               → persist as a soft warning
-//
-// Note: this v1 doesn't yet verify Plaid's webhook signature (JWT in the
-// `Plaid-Verification` header). Add signature verification before
-// exposing this URL publicly in production.
 
 type PlaidWebhook = {
   webhook_type: string;
@@ -26,9 +16,30 @@ type PlaidWebhook = {
 };
 
 export async function POST(req: Request) {
+  // We must read the raw body before parsing — the JWT signature is computed
+  // over the exact bytes Plaid sent.
+  const rawBody = await req.text();
+  const jwtToken = req.headers.get("Plaid-Verification");
+
+  // In environments without Plaid keys configured, skip verification entirely
+  // (otherwise verifyPlaidWebhook would fail on the /webhook_verification_key
+  // call). This branch is for local dev only — production must have keys.
+  const skipVerify =
+    !process.env.PLAID_CLIENT_ID ||
+    !process.env.PLAID_SECRET ||
+    process.env.PLAID_WEBHOOK_VERIFY === "false";
+
+  if (!skipVerify) {
+    const v = await verifyPlaidWebhook(jwtToken, rawBody);
+    if (!v.valid) {
+      console.warn("[plaid:webhook] rejected:", v.reason);
+      return new Response("Unauthorized", { status: 401 });
+    }
+  }
+
   let payload: PlaidWebhook;
   try {
-    payload = (await req.json()) as PlaidWebhook;
+    payload = JSON.parse(rawBody) as PlaidWebhook;
   } catch {
     return new Response("Invalid JSON", { status: 400 });
   }

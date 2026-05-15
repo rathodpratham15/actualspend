@@ -7,6 +7,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { plaid } from "./client";
 import { toCanonical } from "./categorize";
+import { decryptSecret } from "@/lib/crypto";
 
 export type PlaidSyncResult = {
   added: number;
@@ -47,11 +48,13 @@ export async function runPlaidSync(
     let cursor: string | undefined = item.cursor ?? undefined;
     let hasMore = true;
     let touchedThisItem = false;
+    // Decrypt once per item rather than per sync page.
+    const accessToken = decryptSecret(item.accessToken);
 
     try {
       while (hasMore) {
         const res = await plaid.transactionsSync({
-          access_token: item.accessToken,
+          access_token: accessToken,
           cursor,
         });
         const data = res.data;

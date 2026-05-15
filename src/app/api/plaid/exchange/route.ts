@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { plaid } from "@/lib/plaid/client";
 import { db } from "@/lib/db";
 import { plaidItems } from "@/lib/db/schema";
+import { encryptSecret } from "@/lib/crypto";
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -32,7 +33,10 @@ export async function POST(req: Request) {
     await db.insert(plaidItems).values({
       userId: session.user.id,
       itemId: item_id,
-      accessToken: access_token,
+      // Application-layer envelope encryption (AES-256-GCM). Neon encrypts
+      // the column at rest too; this adds defense-in-depth so DB read
+      // access alone doesn't yield usable Plaid tokens.
+      accessToken: encryptSecret(access_token),
       institutionId: body.institution?.institution_id ?? null,
       institutionName: body.institution?.name ?? null,
     });

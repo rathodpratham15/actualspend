@@ -11,6 +11,7 @@ import type {
   GetExpensesResponse,
   GetFriendsResponse,
 } from "@/lib/splitwise/types";
+import { decryptSecret } from "@/lib/crypto";
 
 // Refreshes the friends directory. Cheap (one API call, ≤100 friends typical)
 // and lets the UI render real names instead of "user 4837192".
@@ -72,10 +73,11 @@ export async function syncSplitwiseExpenses(
     .from(splitwiseCredentials)
     .where(eq(splitwiseCredentials.userId, userId));
   if (!cred) throw new Error("Splitwise not connected for this user");
+  const accessToken = decryptSecret(cred.accessToken);
 
   // Refresh the friends cache first — cheap and lets participant rows
   // resolve to display names on render.
-  await syncFriends(userId, cred.accessToken);
+  await syncFriends(userId, accessToken);
 
   const limit = 100;
   let offset = 0;
@@ -95,7 +97,7 @@ export async function syncSplitwiseExpenses(
 
     const data = await splitwiseFetch<GetExpensesResponse>(
       `/get_expenses?${params.toString()}`,
-      cred.accessToken,
+      accessToken,
     );
 
     for (const exp of data.expenses) {
