@@ -43,7 +43,7 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
       data-testid="app-header"
       className="border-b border-border bg-background/80 backdrop-blur sticky top-0 z-30"
     >
-      <div className="max-w-[88rem] mx-auto px-6 h-14 flex items-center justify-between">
+      <div className="max-w-352 mx-auto px-6 h-14 flex items-center justify-between">
         <Link
           href={variant === "app" ? "/" : "/welcome"}
           data-testid="brand-link"

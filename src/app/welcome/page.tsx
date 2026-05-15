@@ -110,7 +110,7 @@ export default function WelcomePage() {
             type="submit"
             disabled={submitting}
             data-testid="waitlist-submit"
-            className="h-10 px-5 rounded-md bg-foreground text-background text-sm hover:opacity-90 transition-opacity disabled:opacity-60"
+            className="h-10 px-5 rounded-md bg-foreground text-background text-sm whitespace-nowrap shrink-0 hover:opacity-90 transition-opacity disabled:opacity-60"
           >
             {submitting ? "Submitting…" : "Get an invite"}
           </button>
