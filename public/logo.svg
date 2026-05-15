@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <path d="M32 2 A30 30 0 0 0 32 62 Z" fill="#0F766E"/>
+  <path d="M32 2 A30 30 0 0 1 32 62 Z" fill="#5EEAD4"/>
+  <text x="32" y="46" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="42" font-weight="700" fill="#ffffff">$</text>
+</svg>

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { Logo } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 
 const navItem =
@@ -42,12 +43,13 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
       data-testid="app-header"
       className="border-b border-border bg-background/80 backdrop-blur sticky top-0 z-30"
     >
-      <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+      <div className="max-w-[88rem] mx-auto px-6 h-14 flex items-center justify-between">
         <Link
           href={variant === "app" ? "/" : "/welcome"}
           data-testid="brand-link"
-          className="text-[15px] font-medium tracking-tight"
+          className="flex items-center gap-2 text-[15px] font-medium tracking-tight"
         >
+          <Logo size={22} />
           ActualSpend
         </Link>
 
