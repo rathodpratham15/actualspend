@@ -24,7 +24,10 @@ export async function computeDashboardMetrics(
   userId: string,
   period: Period,
 ): Promise<DashboardMetrics> {
-  // Bank spent: sum of bank outflows in window.
+  // Bank spent: sum of bank outflows in window, excluding internal
+  // transfers (e.g. paying off a credit card from bank — that's not new
+  // spending, just settling debt). Income credits and reimbursements
+  // received aren't outflows anyway.
   const [bankRow] = await db
     .select({
       total: sql<number>`COALESCE(SUM(${transactions.amount}::numeric), 0)::float`,
@@ -37,6 +40,7 @@ export async function computeDashboardMetrics(
         gte(transactions.date, period.from),
         lte(transactions.date, period.to),
         sql`${transactions.amount}::numeric > 0`,
+        sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('TRANSFER', 'INCOME', 'REIMBURSEMENT'))`,
       ),
     );
 
@@ -124,6 +128,9 @@ export async function computeDashboardMetrics(
       and(
         eq(reconciliations.userId, userId),
         sql`COALESCE(${transactions.date}, ${splitwiseExpenses.date}) BETWEEN ${period.from} AND ${period.to}`,
+        // Mirror the bank-outflow exclusion above so paying off a credit
+        // card doesn't show up as actual spend.
+        sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('TRANSFER', 'INCOME', 'REIMBURSEMENT'))`,
       ),
     );
 
@@ -137,21 +144,44 @@ export async function computeDashboardMetrics(
   };
 }
 
+export type CategoryTxn = {
+  id: string;
+  name: string;
+  merchantName: string | null;
+  date: string;
+  amount: number;
+};
+
 export type CategoryBreakdown = {
   category: string | null;
   total: number;
   count: number;
+  txns: CategoryTxn[];
 };
+
+// Canonical categories that are NOT real spending — internal transfers
+// (e.g. paying off a credit card from bank), income credits, and
+// reimbursements received. Excluded from the dashboard's bank-outflow and
+// category-breakdown numbers so a $500 CC bill payment doesn't look like
+// "$500 spent on transfers" when the underlying purchases are already
+// counted on the credit card side.
+const NON_SPEND_CATEGORIES = ["TRANSFER", "INCOME", "REIMBURSEMENT"];
 
 export async function computeCategoryBreakdown(
   userId: string,
   period: Period,
 ): Promise<CategoryBreakdown[]> {
+  // Pull every spend-side transaction in the period in one query, then
+  // group + order in JS. Simpler than two queries and v1-scale-cheap
+  // (hundreds of rows, not millions).
   const rows = await db
     .select({
+      id: transactions.id,
       category: transactions.canonicalCategory,
-      total: sql<number>`SUM(${transactions.amount}::numeric)::float`,
-      count: sql<number>`COUNT(*)::int`,
+      name: transactions.name,
+      merchantName: transactions.merchantName,
+      date: transactions.date,
+      amount: transactions.amount,
     })
     .from(transactions)
     .where(
@@ -163,12 +193,30 @@ export async function computeCategoryBreakdown(
         sql`${transactions.amount}::numeric > 0`,
       ),
     )
-    .groupBy(transactions.canonicalCategory)
-    .orderBy(sql`SUM(${transactions.amount}::numeric) DESC`);
+    .orderBy(sql`${transactions.date} DESC`);
 
-  return rows.map((r) => ({
-    category: r.category,
-    total: r.total,
-    count: r.count,
-  }));
+  const buckets = new Map<string | null, CategoryBreakdown>();
+  for (const r of rows) {
+    if (r.category && NON_SPEND_CATEGORIES.includes(r.category)) continue;
+    const key = r.category;
+    const bucket = buckets.get(key) ?? {
+      category: key,
+      total: 0,
+      count: 0,
+      txns: [],
+    };
+    const amount = Number(r.amount);
+    bucket.total += amount;
+    bucket.count++;
+    bucket.txns.push({
+      id: r.id,
+      name: r.name,
+      merchantName: r.merchantName,
+      date: r.date,
+      amount,
+    });
+    buckets.set(key, bucket);
+  }
+
+  return Array.from(buckets.values()).sort((a, b) => b.total - a.total);
 }

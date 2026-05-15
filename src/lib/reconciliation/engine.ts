@@ -138,9 +138,12 @@ export async function reconcileForUser(
       ),
     );
 
-  // 1. Pull live bank outflows. We pull ALL of them first so the coverage
-  // window calc reflects the full bank reality, then filter out user-locked
-  // txns before scoring.
+  // 1. Pull live bank outflows. Excludes internal transfers (canonical
+  // TRANSFER — e.g. paying off a credit card from bank), since those aren't
+  // real spending. Also excludes INCOME / REIMBURSEMENT canonicals
+  // defensively, though they shouldn't appear on the outflow side anyway.
+  // We pull ALL of them first so the coverage window calc reflects the full
+  // bank reality, then filter out user-locked txns before scoring.
   const allBankTxns = (await db
     .select({
       id: transactions.id,
@@ -155,6 +158,7 @@ export async function reconcileForUser(
         eq(transactions.userId, userId),
         isNull(transactions.deletedAt),
         sql`${transactions.amount}::numeric > 0`, // outflows only for v1
+        sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('TRANSFER', 'INCOME', 'REIMBURSEMENT'))`,
       ),
     )) as BankTxn[];
 

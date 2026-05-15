@@ -122,12 +122,14 @@ const DETAILED_MAP: Record<string, string> = {
   TRANSFER_OUT_ACCOUNT_TRANSFER: "TRANSFER",
   TRANSFER_OUT_OTHER_TRANSFER_OUT: "TRANSFER",
 
-  // LOAN_PAYMENTS — student loans get their own bucket would be nice but
-  // for v1 they roll up to FEES alongside other loan payments
+  // LOAN_PAYMENTS — most are real spend, but CC payments are internal
+  // transfers (the actual spending shows up as the underlying card charges
+  // when the user links their credit card). Mark CC payments as TRANSFER so
+  // the dashboard / engine can dedup them.
   LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT: "EDUCATION",
   LOAN_PAYMENTS_CAR_PAYMENT: "TRANSPORT",
   LOAN_PAYMENTS_MORTGAGE_PAYMENT: "RENT",
-  LOAN_PAYMENTS_CREDIT_CARD_PAYMENT: "FEES",
+  LOAN_PAYMENTS_CREDIT_CARD_PAYMENT: "TRANSFER",
   LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT: "FEES",
   LOAN_PAYMENTS_OTHER_PAYMENT: "FEES",
 

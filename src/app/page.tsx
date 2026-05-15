@@ -171,6 +171,14 @@ export default async function DashboardPage({
   );
 }
 
+function fmtTxnDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function CategorySection({ rows }: { rows: CategoryBreakdown[] }) {
   if (rows.length === 0) return null;
   const max = rows[0]?.total ?? 0;
@@ -187,26 +195,61 @@ function CategorySection({ rows }: { rows: CategoryBreakdown[] }) {
             : "Uncategorized";
           const pct = max > 0 ? (r.total / max) * 100 : 0;
           return (
-            <div
+            <details
               key={r.category ?? "null"}
               data-testid={`cat-${(r.category ?? "uncategorized").toLowerCase()}`}
+              className="group"
             >
-              <div className="flex items-baseline justify-between text-[15px]">
-                <span>{label}</span>
-                <span className="font-mono">
-                  $
-                  {r.total.toLocaleString("en-US", {
-                    maximumFractionDigits: 0,
-                  })}
-                </span>
-              </div>
-              <div className="mt-2 h-px bg-border w-full relative">
-                <div
-                  className="absolute left-0 top-0 h-px bg-foreground transition-all"
-                  style={{ width: `${pct.toFixed(1)}%` }}
-                />
-              </div>
-            </div>
+              <summary className="cursor-pointer list-none">
+                <div className="flex items-baseline justify-between text-[15px]">
+                  <span className="flex items-baseline gap-2">
+                    <span className="text-secondary text-xs transition-transform group-open:rotate-90 inline-block">
+                      ›
+                    </span>
+                    <span>{label}</span>
+                    <span className="text-xs text-secondary font-mono">
+                      {r.count} txn{r.count === 1 ? "" : "s"}
+                    </span>
+                  </span>
+                  <span className="font-mono">
+                    $
+                    {r.total.toLocaleString("en-US", {
+                      maximumFractionDigits: 0,
+                    })}
+                  </span>
+                </div>
+                <div className="mt-2 h-px bg-border w-full relative">
+                  <div
+                    className="absolute left-0 top-0 h-px bg-foreground transition-all"
+                    style={{ width: `${pct.toFixed(1)}%` }}
+                  />
+                </div>
+              </summary>
+              <ul className="mt-3 pl-5 space-y-1.5 text-sm">
+                {r.txns.map((t) => (
+                  <li
+                    key={t.id}
+                    className="flex items-baseline justify-between gap-2"
+                  >
+                    <span className="flex items-baseline gap-2 min-w-0">
+                      <span className="text-xs text-secondary font-mono shrink-0">
+                        {fmtTxnDate(t.date)}
+                      </span>
+                      <span className="truncate">
+                        {t.merchantName || t.name}
+                      </span>
+                    </span>
+                    <span className="font-mono text-xs">
+                      $
+                      {t.amount.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
           );
         })}
       </div>
