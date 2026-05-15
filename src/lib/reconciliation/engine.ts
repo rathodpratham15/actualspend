@@ -138,12 +138,11 @@ export async function reconcileForUser(
       ),
     );
 
-  // 1. Pull live bank outflows. Excludes internal transfers (canonical
-  // TRANSFER — e.g. paying off a credit card from bank), since those aren't
-  // real spending. Also excludes INCOME / REIMBURSEMENT canonicals
-  // defensively, though they shouldn't appear on the outflow side anyway.
-  // We pull ALL of them first so the coverage window calc reflects the full
-  // bank reality, then filter out user-locked txns before scoring.
+  // 1. Pull live bank outflows. Excludes credit-card bill payments
+  // (CC_PAYMENT canonical — the actual purchases come in on the CC side)
+  // and defensively excludes INCOME / REIMBURSEMENT canonicals. Real
+  // TRANSFERS (checks to landlord, Zelle to friends, ATM withdrawals) are
+  // kept — they're real money leaving the account.
   const allBankTxns = (await db
     .select({
       id: transactions.id,
@@ -158,7 +157,7 @@ export async function reconcileForUser(
         eq(transactions.userId, userId),
         isNull(transactions.deletedAt),
         sql`${transactions.amount}::numeric > 0`, // outflows only for v1
-        sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('TRANSFER', 'INCOME', 'REIMBURSEMENT'))`,
+        sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('CC_PAYMENT', 'INCOME', 'REIMBURSEMENT'))`,
       ),
     )) as BankTxn[];
 

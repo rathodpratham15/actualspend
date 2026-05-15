@@ -4,7 +4,7 @@ import {
   splitwiseExpenses,
   transactions,
 } from "@/lib/db/schema";
-import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { RECONCILIATION_TYPES } from "@/lib/reconciliation/types";
 import type { Period } from "./period";
 
@@ -40,7 +40,7 @@ export async function computeDashboardMetrics(
         gte(transactions.date, period.from),
         lte(transactions.date, period.to),
         sql`${transactions.amount}::numeric > 0`,
-        sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('TRANSFER', 'INCOME', 'REIMBURSEMENT'))`,
+        sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('CC_PAYMENT', 'INCOME', 'REIMBURSEMENT'))`,
       ),
     );
 
@@ -130,7 +130,7 @@ export async function computeDashboardMetrics(
         sql`COALESCE(${transactions.date}, ${splitwiseExpenses.date}) BETWEEN ${period.from} AND ${period.to}`,
         // Mirror the bank-outflow exclusion above so paying off a credit
         // card doesn't show up as actual spend.
-        sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('TRANSFER', 'INCOME', 'REIMBURSEMENT'))`,
+        sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('CC_PAYMENT', 'INCOME', 'REIMBURSEMENT'))`,
       ),
     );
 
@@ -148,8 +148,17 @@ export type CategoryTxn = {
   id: string;
   name: string;
   merchantName: string | null;
+  /** Description from a matched Splitwise expense, when reconciled. Useful
+   * when the bank name is opaque (e.g. "IC* INSTACART") but the Splitwise
+   * side names the actual store ("Apne Bazaar"). */
+  swDescription: string | null;
   date: string;
+  /** Raw bank charge amount (what hit the card). */
   amount: number;
+  /** User's share after Splitwise reconciliation; equals `amount` when
+   * there's no shared-cost match. This is the "real personal spend" the
+   * dashboard rolls up per category. */
+  actualAmount: number;
 };
 
 export type CategoryBreakdown = {
@@ -159,21 +168,26 @@ export type CategoryBreakdown = {
   txns: CategoryTxn[];
 };
 
-// Canonical categories that are NOT real spending — internal transfers
-// (e.g. paying off a credit card from bank), income credits, and
-// reimbursements received. Excluded from the dashboard's bank-outflow and
-// category-breakdown numbers so a $500 CC bill payment doesn't look like
-// "$500 spent on transfers" when the underlying purchases are already
-// counted on the credit card side.
-const NON_SPEND_CATEGORIES = ["TRANSFER", "INCOME", "REIMBURSEMENT"];
+// Canonical categories that are NOT real spending: credit card bill
+// payments (the underlying purchases show on the linked CC account),
+// income credits, and reimbursements received. Excluded from the
+// dashboard's bank-outflow and category-breakdown numbers.
+//
+// NB: TRANSFER is INCLUDED — checks/wires to landlords, Zelle to friends,
+// etc. are categorized by Plaid as TRANSFER but they're real money out
+// of the user's account. v1.1: surface a manual recategorize UI so users
+// can demote actual transfers (savings, investment) themselves.
+const NON_SPEND_CATEGORIES = ["CC_PAYMENT", "INCOME", "REIMBURSEMENT"];
 
 export async function computeCategoryBreakdown(
   userId: string,
   period: Period,
 ): Promise<CategoryBreakdown[]> {
-  // Pull every spend-side transaction in the period in one query, then
-  // group + order in JS. Simpler than two queries and v1-scale-cheap
-  // (hundreds of rows, not millions).
+  // Pull every spend-side transaction in the period in one query, joined
+  // to its reconciliation (if any) so we can surface the Splitwise
+  // description as the merchant alias AND use the reconciled user-share
+  // ("actual_amount") as the per-txn dollar figure instead of the raw
+  // bank charge.
   const rows = await db
     .select({
       id: transactions.id,
@@ -182,8 +196,18 @@ export async function computeCategoryBreakdown(
       merchantName: transactions.merchantName,
       date: transactions.date,
       amount: transactions.amount,
+      swDescription: splitwiseExpenses.description,
+      reconActual: reconciliations.actualAmount,
     })
     .from(transactions)
+    .leftJoin(
+      reconciliations,
+      eq(reconciliations.transactionId, transactions.id),
+    )
+    .leftJoin(
+      splitwiseExpenses,
+      eq(splitwiseExpenses.id, reconciliations.splitwiseExpenseId),
+    )
     .where(
       and(
         eq(transactions.userId, userId),
@@ -193,10 +217,16 @@ export async function computeCategoryBreakdown(
         sql`${transactions.amount}::numeric > 0`,
       ),
     )
-    .orderBy(sql`${transactions.date} DESC`);
+    .orderBy(desc(transactions.date));
 
   const buckets = new Map<string | null, CategoryBreakdown>();
+  const seenTxnIds = new Set<string>();
   for (const r of rows) {
+    // Drizzle's leftJoin can produce duplicate rows if a txn has multiple
+    // reconciliation rows. Dedup by txn id (first one wins; ordered by
+    // date so the newest matched description sticks).
+    if (seenTxnIds.has(r.id)) continue;
+    seenTxnIds.add(r.id);
     if (r.category && NON_SPEND_CATEGORIES.includes(r.category)) continue;
     const key = r.category;
     const bucket = buckets.get(key) ?? {
@@ -206,14 +236,22 @@ export async function computeCategoryBreakdown(
       txns: [],
     };
     const amount = Number(r.amount);
-    bucket.total += amount;
+    // When a reconciliation row exists, use its actual_amount (the user's
+    // share after the Splitwise split). When the engine hasn't matched
+    // this txn yet — or when the bank charge has no Splitwise counterpart
+    // — fall back to the full bank amount.
+    const actualAmount =
+      r.reconActual !== null ? Number(r.reconActual) : amount;
+    bucket.total += actualAmount;
     bucket.count++;
     bucket.txns.push({
       id: r.id,
       name: r.name,
       merchantName: r.merchantName,
+      swDescription: r.swDescription ?? null,
       date: r.date,
       amount,
+      actualAmount,
     });
     buckets.set(key, bucket);
   }
