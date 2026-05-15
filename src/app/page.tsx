@@ -237,6 +237,13 @@ function CategorySection({ rows }: { rows: CategoryBreakdown[] }) {
                     t.swDescription && t.swDescription !== bankLabel
                       ? bankLabel
                       : null;
+                  // Show the reconciled share when it's actually smaller
+                  // than the bank charge (i.e. roommates owe back some of
+                  // this). Bank charge becomes a faded strikethrough so the
+                  // user can tie it back to their statement.
+                  const shared =
+                    t.actualAmount > 0 &&
+                    t.actualAmount < t.amount - 0.005;
                   return (
                     <li
                       key={t.id}
@@ -256,11 +263,30 @@ function CategorySection({ rows }: { rows: CategoryBreakdown[] }) {
                         </span>
                       </span>
                       <span className="font-mono text-xs">
-                        $
-                        {t.amount.toLocaleString("en-US", {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
+                        {shared ? (
+                          <>
+                            $
+                            {t.actualAmount.toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                            <span className="ml-1.5 text-secondary line-through">
+                              $
+                              {t.amount.toLocaleString("en-US", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            $
+                            {t.amount.toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </>
+                        )}
                       </span>
                     </li>
                   );

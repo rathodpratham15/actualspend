@@ -153,7 +153,12 @@ export type CategoryTxn = {
    * side names the actual store ("Apne Bazaar"). */
   swDescription: string | null;
   date: string;
+  /** Raw bank charge amount (what hit the card). */
   amount: number;
+  /** User's share after Splitwise reconciliation; equals `amount` when
+   * there's no shared-cost match. This is the "real personal spend" the
+   * dashboard rolls up per category. */
+  actualAmount: number;
 };
 
 export type CategoryBreakdown = {
@@ -180,7 +185,9 @@ export async function computeCategoryBreakdown(
 ): Promise<CategoryBreakdown[]> {
   // Pull every spend-side transaction in the period in one query, joined
   // to its reconciliation (if any) so we can surface the Splitwise
-  // description as the merchant alias when the bank text is opaque.
+  // description as the merchant alias AND use the reconciled user-share
+  // ("actual_amount") as the per-txn dollar figure instead of the raw
+  // bank charge.
   const rows = await db
     .select({
       id: transactions.id,
@@ -190,6 +197,7 @@ export async function computeCategoryBreakdown(
       date: transactions.date,
       amount: transactions.amount,
       swDescription: splitwiseExpenses.description,
+      reconActual: reconciliations.actualAmount,
     })
     .from(transactions)
     .leftJoin(
@@ -228,7 +236,13 @@ export async function computeCategoryBreakdown(
       txns: [],
     };
     const amount = Number(r.amount);
-    bucket.total += amount;
+    // When a reconciliation row exists, use its actual_amount (the user's
+    // share after the Splitwise split). When the engine hasn't matched
+    // this txn yet — or when the bank charge has no Splitwise counterpart
+    // — fall back to the full bank amount.
+    const actualAmount =
+      r.reconActual !== null ? Number(r.reconActual) : amount;
+    bucket.total += actualAmount;
     bucket.count++;
     bucket.txns.push({
       id: r.id,
@@ -237,6 +251,7 @@ export async function computeCategoryBreakdown(
       swDescription: r.swDescription ?? null,
       date: r.date,
       amount,
+      actualAmount,
     });
     buckets.set(key, bucket);
   }
