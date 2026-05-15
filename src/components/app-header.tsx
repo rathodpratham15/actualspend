@@ -69,10 +69,12 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
     </>
   );
 
-  const marketingLinks = (
+  // Desktop marketing nav — Sign in is the primary CTA, inverse-colored
+  // for emphasis.
+  const marketingLinksDesktop = (
     <>
-      <NavLink href="/security" testid="nav-security" onClick={close}>
-        Security
+      <NavLink href="/privacy" testid="nav-privacy" onClick={close}>
+        Privacy
       </NavLink>
       <NavLink href="/changelog" testid="nav-changelog" onClick={close}>
         Changelog
@@ -82,6 +84,28 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
         data-testid="nav-login"
         onClick={close}
         className="inline-flex items-center h-9 px-4 rounded-md bg-foreground text-background text-sm hover:opacity-90 transition-opacity"
+      >
+        Sign in
+      </Link>
+    </>
+  );
+
+  // Mobile drawer marketing nav — Sign in uses an outlined/ghost style so
+  // it blends with the drawer's surface in both light and dark mode rather
+  // than punching out as a solid white block on a dark background.
+  const marketingLinksMobile = (
+    <>
+      <NavLink href="/privacy" testid="nav-privacy" onClick={close}>
+        Privacy
+      </NavLink>
+      <NavLink href="/changelog" testid="nav-changelog" onClick={close}>
+        Changelog
+      </NavLink>
+      <Link
+        href="/login"
+        data-testid="nav-login"
+        onClick={close}
+        className="mt-1 inline-flex items-center h-9 px-3 rounded-md border border-border text-sm hover:bg-secondary transition-colors"
       >
         Sign in
       </Link>
@@ -106,7 +130,7 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
 
         {/* Desktop nav — full width >= sm */}
         <nav className="hidden sm:flex items-center gap-1">
-          {variant === "app" ? appLinks : marketingLinks}
+          {variant === "app" ? appLinks : marketingLinksDesktop}
           <span className="mx-2 h-5 w-px bg-border" />
           <ThemeToggle />
         </nav>
@@ -155,7 +179,7 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
           className="sm:hidden border-t border-border bg-background"
         >
           <nav className="flex flex-col px-4 py-3 gap-1">
-            {variant === "app" ? appLinks : marketingLinks}
+            {variant === "app" ? appLinks : marketingLinksMobile}
           </nav>
         </div>
       )}
