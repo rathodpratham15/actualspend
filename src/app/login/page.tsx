@@ -1,6 +1,14 @@
+import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AppHeader } from "@/components/app-header";
+import { Logo } from "@/components/logo";
 import { auth, signIn } from "@/lib/auth";
+
+const LOGIN_ILLUSTRATION_LIGHT = "/login-illustration-light.svg";
+const LOGIN_ILLUSTRATION_DARK = "/login-illustration.svg";
+
+const illustrationClassName = "w-full h-auto drop-shadow-sm";
 
 function GoogleIcon() {
   return (
@@ -30,43 +38,95 @@ export default async function LoginPage() {
   if (session?.user) redirect("/");
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-6">
-      <div className="w-full max-w-[400px] bg-surface border border-border rounded-xl p-8">
-        <Link
-          href="/welcome"
-          className="text-[15px] font-medium tracking-tight inline-block"
-          data-testid="login-brand"
-        >
-          ActualSpend
-        </Link>
-        <p className="mt-3 text-secondary text-sm leading-relaxed">
-          See how much you actually spent — after roommates pay you back.
+    <div className="min-h-screen flex flex-col bg-background">
+      <AppHeader variant="marketing" />
+
+      <div className="flex flex-1 flex-col lg:flex-row min-h-0">
+        <div className="relative flex flex-col items-center justify-center bg-emerald-soft px-6 pt-10 pb-6 lg:flex-1 lg:px-12 lg:py-16">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -top-24 -right-24 h-64 w-64 rounded-full bg-emerald-accent/10 blur-3xl" />
+          <div className="absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-emerald-accent/8 blur-3xl" />
+        </div>
+
+        <div className="relative w-full max-w-[320px] sm:max-w-[380px] fade-up">
+          <Image
+            src={LOGIN_ILLUSTRATION_LIGHT}
+            alt=""
+            width={500}
+            height={500}
+            priority
+            unoptimized
+            className={`${illustrationClassName} dark:hidden`}
+          />
+          <Image
+            src={LOGIN_ILLUSTRATION_DARK}
+            alt=""
+            width={500}
+            height={500}
+            priority
+            unoptimized
+            className={`${illustrationClassName} hidden dark:block`}
+          />
+        </div>
+
+        <p className="relative mt-6 max-w-xs text-center text-sm text-secondary leading-relaxed hidden sm:block fade-up delay-1">
+          Connect once. We reconcile your bank with Splitwise so the number that
+          matters is yours — not what roommates owed you.
         </p>
 
-        <form
-          action={async () => {
-            "use server";
-            await signIn("google", { redirectTo: "/" });
-          }}
-        >
-          <button
-            type="submit"
-            data-testid="google-signin-btn"
-            className="mt-8 w-full h-10 inline-flex items-center justify-center gap-3 rounded-md border border-border bg-surface text-sm hover:bg-secondary transition-colors"
+        <p className="relative mt-8 text-[10px] text-secondary/80">
+          Illustration by{" "}
+          <a
+            href="https://storyset.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2 hover:text-foreground"
           >
-            <GoogleIcon />
-            Continue with Google
-          </button>
-        </form>
+            Storyset
+          </a>
+        </p>
+      </div>
 
-        <div className="mt-8 text-center">
+      <div className="flex flex-1 items-center justify-center px-6 py-10 lg:py-16">
+        <div className="w-full max-w-[400px] bg-surface border border-border rounded-xl p-8 shadow-sm fade-up delay-2">
           <Link
-            href="/security"
-            className="text-xs text-secondary hover:text-foreground"
+            href="/welcome"
+            className="inline-flex items-center gap-2.5 text-[15px] font-medium tracking-tight"
+            data-testid="login-brand"
           >
-            Security
+            <Logo size={28} />
+            ActualSpend
           </Link>
+          <p className="mt-3 text-secondary text-sm leading-relaxed">
+            See how much you actually spent — after roommates pay you back.
+          </p>
+
+          <form
+            action={async () => {
+              "use server";
+              await signIn("google", { redirectTo: "/" });
+            }}
+          >
+            <button
+              type="submit"
+              data-testid="google-signin-btn"
+              className="mt-8 w-full h-10 inline-flex items-center justify-center gap-3 rounded-md border border-border bg-surface text-sm hover:bg-secondary transition-colors"
+            >
+              <GoogleIcon />
+              Continue with Google
+            </button>
+          </form>
+
+          <div className="mt-8 text-center">
+            <Link
+              href="/security"
+              className="text-xs text-secondary hover:text-foreground"
+            >
+              Privacy
+            </Link>
+          </div>
         </div>
+      </div>
       </div>
     </div>
   );

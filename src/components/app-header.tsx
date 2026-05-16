@@ -41,8 +41,10 @@ function NavLink({
 
 export function AppHeader({ variant = "app" }: { variant?: Variant }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
+  const onLoginPage = pathname === "/login";
 
   const appLinks = (
     <>
@@ -76,14 +78,16 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
       <NavLink href="/security" testid="nav-privacy" onClick={close}>
         Privacy
       </NavLink>
-      <Link
-        href="/login"
-        data-testid="nav-login"
-        onClick={close}
-        className="inline-flex items-center h-9 px-4 rounded-md bg-foreground text-background text-sm hover:opacity-90 transition-opacity"
-      >
-        Sign in
-      </Link>
+      {!onLoginPage && (
+        <Link
+          href="/login"
+          data-testid="nav-login"
+          onClick={close}
+          className="inline-flex items-center h-9 px-4 rounded-md bg-foreground text-background text-sm hover:opacity-90 transition-opacity"
+        >
+          Sign in
+        </Link>
+      )}
     </>
   );
 
@@ -97,14 +101,16 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
       <NavLink href="/security" testid="nav-privacy" onClick={close}>
         Privacy
       </NavLink>
-      <Link
-        href="/login"
-        data-testid="nav-login"
-        onClick={close}
-        className={`${navItem} text-foreground`}
-      >
-        Sign in
-      </Link>
+      {!onLoginPage && (
+        <Link
+          href="/login"
+          data-testid="nav-login"
+          onClick={close}
+          className={`${navItem} text-foreground`}
+        >
+          Sign in
+        </Link>
+      )}
     </>
   );
 
