@@ -10,6 +10,7 @@ import {
   splitwiseExpenses,
   splitwiseFriends,
   transactions,
+  type LinkedExpense,
   type MatchReason,
 } from "@/lib/db/schema";
 import {
@@ -22,6 +23,7 @@ import type { ReconciliationPair } from "@/lib/seed";
 import { AppHeader } from "@/components/app-header";
 import { ReconSection } from "@/components/recon-section";
 import { ReconAwaitingCard } from "@/components/recon-awaiting-card";
+import { ReconNmCard, type NmBankTxn, type NmSwExpense } from "@/components/recon-nm-card";
 import { SubtractionBlock } from "@/components/subtraction-block";
 import { RunReconcileButton } from "@/components/run-reconcile-button";
 import { MarkSharedForm } from "@/components/mark-shared-form";
@@ -44,6 +46,9 @@ type Row = {
   swUserShare: string | null;
   swPaidByUser: string | null;
   swIsPayment: boolean | null;
+  // N:M fields — null on all 1:1 rows.
+  nmGroupId: string | null;
+  linkedExpenses: LinkedExpense[] | null;
 };
 
 type ParticipantInfo = {
@@ -75,6 +80,8 @@ async function fetchRows(userId: string): Promise<Row[]> {
       swUserShare: splitwiseExpenses.userShare,
       swPaidByUser: splitwiseExpenses.paidByUser,
       swIsPayment: splitwiseExpenses.isPayment,
+      nmGroupId: reconciliations.nmGroupId,
+      linkedExpenses: reconciliations.linkedExpenses,
     })
     .from(reconciliations)
     .leftJoin(transactions, eq(transactions.id, reconciliations.transactionId))
@@ -249,7 +256,10 @@ export default async function ReconcilePage() {
   const rows = await fetchRows(session.user.id);
   const participants = await fetchParticipantInfo(session.user.id, rows);
 
-  const awaiting = rows.filter((r) => r.state === STATES.PENDING);
+  const allAwaiting = rows.filter((r) => r.state === STATES.PENDING);
+  // Split into plain 1:1 pending rows and N:M group rows.
+  const awaiting = allAwaiting.filter((r) => !r.nmGroupId);
+  const nmAwaiting = allAwaiting.filter((r) => !!r.nmGroupId);
   const matched = rows.filter(
     (r) =>
       r.state !== STATES.PENDING &&
@@ -270,6 +280,78 @@ export default async function ReconcilePage() {
       r.recType === RECONCILIATION_TYPES.PERSONAL_EXPENSE &&
       r.state !== STATES.USER_REJECTED,
   );
+
+  // Group N:M pending rows into cards. Each group → one ReconNmCard.
+  type NmGroup = {
+    groupId: string;
+    representativeId: string;
+    shape: "1:N" | "N:1";
+    bankTxns: NmBankTxn[];
+    swExpenses: NmSwExpense[];
+    totalActualAmount: number;
+    confidence: number;
+    reasons: string[];
+  };
+  const nmGroups: NmGroup[] = [];
+  {
+    const byGroupId = new Map<string, Row[]>();
+    for (const r of nmAwaiting) {
+      const gid = r.nmGroupId!;
+      const arr = byGroupId.get(gid) ?? [];
+      arr.push(r);
+      byGroupId.set(gid, arr);
+    }
+    for (const [groupId, rows] of byGroupId) {
+      const rep = rows[0];
+      // Shape: 1:N if there's one row with linkedExpenses; N:1 if multiple rows.
+      const shape: "1:N" | "N:1" =
+        rows.length === 1 && rep.linkedExpenses?.length ? "1:N" : "N:1";
+
+      const bankTxns: NmBankTxn[] = rows
+        .filter((r) => r.txnName !== null)
+        .map((r) => ({
+          name: r.txnName ?? "(no description)",
+          amount: Number(r.txnAmount ?? 0),
+          date: r.txnDate ?? "",
+          account: r.institutionName ?? "Bank",
+        }));
+
+      // For 1:N: primary expense from the row + linked extras.
+      // For N:1: all rows share the same SW expense (use first row).
+      const primarySw: NmSwExpense = {
+        description: rep.swDescription,
+        userShare: Number(rep.swUserShare ?? 0),
+        cost: Number(rep.swCost ?? 0),
+      };
+      const linkedSw: NmSwExpense[] = (rep.linkedExpenses ?? []).map((e) => ({
+        description: e.description,
+        userShare: e.userShare,
+        cost: e.cost,
+      }));
+      const swExpenses: NmSwExpense[] =
+        shape === "1:N" ? [primarySw, ...linkedSw] : [primarySw];
+
+      const totalActualAmount = rows.reduce(
+        (s, r) => s + Number(r.actualAmount),
+        0,
+      );
+      const confidence = rep.confidence
+        ? Math.round(Number(rep.confidence) * 100)
+        : 0;
+      const reasons = (rep.matchReasons ?? []).map((r) => r.detail);
+
+      nmGroups.push({
+        groupId,
+        representativeId: rep.recId,
+        shape,
+        bankTxns,
+        swExpenses,
+        totalActualAmount,
+        confidence,
+        reasons,
+      });
+    }
+  }
 
   const totalActual = [...matched, ...splitwiseOnly, ...personal].reduce(
     (s, r) => s + Number(r.actualAmount),
@@ -312,15 +394,31 @@ export default async function ReconcilePage() {
 
         <ReconSection
           title="Awaiting your review"
-          count={awaiting.length}
+          count={awaiting.length + nmGroups.length}
           defaultOpen
         >
-          {awaiting.length === 0 ? (
+          {awaiting.length === 0 && nmGroups.length === 0 ? (
             <p className="text-sm text-secondary">Nothing to review.</p>
           ) : (
-            awaiting.map((r) => (
-              <ReconAwaitingCard key={r.recId} pair={toPair(r, participants)} />
-            ))
+            <>
+              {/* N:M cluster proposals — shown first since they require more attention */}
+              {nmGroups.map((g) => (
+                <ReconNmCard
+                  key={g.groupId}
+                  representativeId={g.representativeId}
+                  shape={g.shape}
+                  bankTxns={g.bankTxns}
+                  swExpenses={g.swExpenses}
+                  totalActualAmount={g.totalActualAmount}
+                  confidence={g.confidence}
+                  reasons={g.reasons}
+                />
+              ))}
+              {/* Standard 1:1 proposals */}
+              {awaiting.map((r) => (
+                <ReconAwaitingCard key={r.recId} pair={toPair(r, participants)} />
+              ))}
+            </>
           )}
         </ReconSection>
 
