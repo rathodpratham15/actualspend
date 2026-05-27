@@ -7,6 +7,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { plaid } from "./client";
 import { toCanonical } from "./categorize";
+import { normalizeEffectiveMerchant } from "./merchant-normalize";
 import { decryptSecret } from "@/lib/crypto";
 
 export type PlaidSyncResult = {
@@ -62,6 +63,7 @@ export async function runPlaidSync(
         for (const t of data.added) {
           const pfc =
             (t.personal_finance_category as PlaidCategory | undefined) ?? null;
+          const norm = normalizeEffectiveMerchant(t.name);
           await db
             .insert(transactions)
             .values({
@@ -73,6 +75,8 @@ export async function runPlaidSync(
               date: t.date,
               name: t.name,
               merchantName: t.merchant_name ?? null,
+              effectiveMerchant: norm?.destination ?? null,
+              channel: norm?.channel ?? null,
               plaidCategory: pfc,
               canonicalCategory: toCanonical(pfc),
               pending: t.pending,
@@ -85,6 +89,7 @@ export async function runPlaidSync(
         for (const t of data.modified) {
           const pfc =
             (t.personal_finance_category as PlaidCategory | undefined) ?? null;
+          const norm = normalizeEffectiveMerchant(t.name);
           await db
             .update(transactions)
             .set({
@@ -92,6 +97,8 @@ export async function runPlaidSync(
               date: t.date,
               name: t.name,
               merchantName: t.merchant_name ?? null,
+              effectiveMerchant: norm?.destination ?? null,
+              channel: norm?.channel ?? null,
               plaidCategory: pfc,
               canonicalCategory: toCanonical(pfc),
               pending: t.pending,
