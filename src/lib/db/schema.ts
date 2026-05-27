@@ -144,6 +144,9 @@ export const transactions = pgTable(
     date: date("date").notNull(),
     name: text("name").notNull(),
     merchantName: text("merchant_name"),
+    // Aggregator-resolved merchant fields (populated by merchant-normalize.ts).
+    // effectiveMerchant = the destination store ("Costco" for "IC* COSTCO").
+    // channel = the delivery service ("Instacart"). Both null for direct charges.
     effectiveMerchant: text("effective_merchant"),
     channel: text("channel"),
     // Layer 1: raw Plaid taxonomy. Immutable; preserved for ML/debugging.
