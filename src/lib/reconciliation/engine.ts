@@ -6,6 +6,7 @@ import {
   splitwiseExpenses,
   splitwiseFriends,
   transactions,
+  type LinkedExpense,
   type MatchReason,
 } from "@/lib/db/schema";
 import { and, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
@@ -18,6 +19,7 @@ import {
   type ReconciliationType,
 } from "./types";
 import { scoreCandidate } from "./score";
+import { detectClusters } from "./cluster";
 import { recategorizeUserTransactions } from "@/lib/plaid/recategorize";
 
 // Designed to be invoked any time fresh data arrives. Idempotent: rows that
@@ -56,8 +58,7 @@ export type ReconcileResult = {
 };
 
 // Wrapper struct so the engine's input/output shape is "groups" even when v1
-// only ever packs one txn + one expense. Future N:M expansion just widens
-// these arrays.
+// only ever packs one txn + one expense. N:M expansion widens these arrays.
 type Group = {
   transactions: BankTxn[];
   splitwiseExpenses: SwExpense[];
@@ -66,6 +67,9 @@ type Group = {
   confidence: number | null;
   reasons: MatchReason[];
   actualAmount: number;
+  // N:M fields — null on all 1:1 rows.
+  nmGroupId?: string | null;
+  linkedExpenses?: LinkedExpense[] | null;
 };
 
 // States the user has personally decided on. Preserved across engine rebuilds;
@@ -163,6 +167,14 @@ export async function reconcileForUser(
 
   const bankTxns = allBankTxns.filter((t) => !lockedTxnIds.has(t.id));
 
+  // ── N:M pre-pass ──────────────────────────────────────────────────────────
+  // Run cluster detection BEFORE the 1:1 loop so detected groups are claimed
+  // first. Clusters always land in PENDING — the user must review them.
+  // We pass swExpenses lazily (evaluated after the query below), so we defer
+  // this call to just before the 1:1 loop where swExpenses is in scope.
+  // (The actual call is placed after swExpenses is built, below.)
+  // ─────────────────────────────────────────────────────────────────────────
+
   // 2. Determine the bank's coverage window. Splitwise expenses outside this
   // window can't meaningfully be reconciled — there's no bank reality on
   // either side of the window to compare to — so we drop them silently from
@@ -206,6 +218,77 @@ export async function reconcileForUser(
   const swExpenses = swExpensesRaw.filter(
     (e) => !claimedSwIdsByUser.has(e.id),
   );
+
+  // ── N:M cluster detection ─────────────────────────────────────────────────
+  // Run now that both bankTxns and swExpenses are available. Produces a set of
+  // multi-txn / multi-expense clusters; we write them immediately and mark
+  // their members as claimed so the 1:1 loop below skips them.
+  const {
+    clusters: nmClusters,
+    usedTxnIds: nmTxnIds,
+    usedSwIds: nmSwIds,
+  } = detectClusters(bankTxns, swExpenses);
+
+  // Write N:M cluster rows and count them as "proposed" (always PENDING).
+  // We buffer the count here and add to `result` after it is declared below.
+  let nmProposedCount = 0;
+  for (const cluster of nmClusters) {
+    const groupId = crypto.randomUUID();
+
+    if (cluster.shape === "1:N") {
+      // Primary row: first txn + first expense (best text anchor).
+      // Aggregate actualAmount = sum of all user shares in the cluster.
+      const [primaryTxn] = cluster.bankTxns;
+      const [primaryExp, ...extraExps] = cluster.swExpenses;
+
+      const linkedExpenses: LinkedExpense[] = extraExps.map((e) => ({
+        id: e.id,
+        description: e.description,
+        userShare: Number(e.userShare),
+        cost: Number(e.cost),
+      }));
+
+      await writeGroup(userId, {
+        transactions: [primaryTxn],
+        splitwiseExpenses: [primaryExp],
+        reconciliationType: RECONCILIATION_TYPES.FRONTED_SHARED_EXPENSE,
+        state: STATES.PENDING,
+        confidence: cluster.confidence,
+        reasons: cluster.reasons,
+        actualAmount: cluster.actualAmount,
+        nmGroupId: groupId,
+        linkedExpenses: linkedExpenses.length > 0 ? linkedExpenses : null,
+      });
+    } else {
+      // N:1 — one row per bank txn, proportional actualAmount, same groupId.
+      const totalBankAmt = cluster.bankTxns.reduce(
+        (s, t) => s + Number(t.amount),
+        0,
+      );
+      const [primaryExp] = cluster.swExpenses;
+      for (const txn of cluster.bankTxns) {
+        const proportion =
+          totalBankAmt > 0 ? Number(txn.amount) / totalBankAmt : 0;
+        await writeGroup(userId, {
+          transactions: [txn],
+          splitwiseExpenses: [primaryExp],
+          reconciliationType: RECONCILIATION_TYPES.FRONTED_SHARED_EXPENSE,
+          state: STATES.PENDING,
+          confidence: cluster.confidence,
+          reasons: cluster.reasons,
+          actualAmount: cluster.actualAmount * proportion,
+          nmGroupId: groupId,
+          linkedExpenses: null,
+        });
+      }
+    }
+    nmProposedCount++;
+  }
+
+  // Extend the locked sets so the 1:1 loop skips everything already claimed.
+  for (const id of nmTxnIds) lockedTxnIds.add(id);
+  const claimedSwIds = new Set<string>([...nmSwIds]);
+  // ─────────────────────────────────────────────────────────────────────────
 
   // Track how many Splitwise rows we skipped so the debug view can explain it.
   let swSkippedOutOfWindow = 0;
@@ -327,7 +410,8 @@ export async function reconcileForUser(
 
   const result: ReconcileResult = {
     autoMatched: 0,
-    proposed: 0,
+    // Seed with N:M clusters (written above, before this declaration).
+    proposed: nmProposedCount,
     splitwiseOnly: 0,
     unmatched: 0,
     reimbursementsAuto: 0,
@@ -339,9 +423,11 @@ export async function reconcileForUser(
   };
 
   // 3. For each bank outflow, find the best Splitwise candidate.
-  const claimedSwIds = new Set<string>();
+  // (claimedSwIds is already seeded with N:M-claimed expense IDs above.)
+  // Re-filter bankTxns to exclude anything the N:M pass just claimed.
+  const remaining1to1Txns = bankTxns.filter((t) => !lockedTxnIds.has(t.id));
 
-  for (const txn of bankTxns) {
+  for (const txn of remaining1to1Txns) {
     const txnAmt = Number(txn.amount);
     let best: { exp: SwExpense; score: number; reasons: MatchReason[] } | null =
       null;
@@ -528,8 +614,6 @@ export async function reconcileForUser(
 }
 
 async function writeGroup(userId: string, g: Group) {
-  // v1 always writes one row per group. Once N:M lands this becomes a
-  // multi-row insert with a shared group_id.
   await db
     .insert(reconciliations)
     .values({
@@ -541,6 +625,8 @@ async function writeGroup(userId: string, g: Group) {
       state: g.state,
       confidence: g.confidence !== null ? g.confidence.toFixed(2) : null,
       matchReasons: g.reasons,
+      nmGroupId: g.nmGroupId ?? null,
+      linkedExpenses: g.linkedExpenses ?? null,
     })
     .onConflictDoNothing();
 }
