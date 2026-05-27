@@ -144,6 +144,11 @@ export const transactions = pgTable(
     date: date("date").notNull(),
     name: text("name").notNull(),
     merchantName: text("merchant_name"),
+    // Aggregator-resolved merchant fields (populated by merchant-normalize.ts).
+    // effectiveMerchant = the destination store ("Costco" for "IC* COSTCO").
+    // channel = the delivery service ("Instacart"). Both null for direct charges.
+    effectiveMerchant: text("effective_merchant"),
+    channel: text("channel"),
     // Layer 1: raw Plaid taxonomy. Immutable; preserved for ML/debugging.
     plaidCategory: jsonb("plaid_category").$type<PlaidCategory>(),
     // Layer 2: our canonical bucket. Nullable until classifier runs.
@@ -299,13 +304,26 @@ export const tags = pgTable(
 // extend the vocabulary without migrations. Valid values mirror the constants
 // in src/lib/reconciliation/types.ts.
 //
-// Code that creates these rows should treat them as part of a logical
-// "reconciliation group" even though v1 writes 1:1 — future N:M expansion is
-// an additive schema change (join table), not a rewrite.
+// N:M groups: multiple rows share the same nm_group_id UUID.
+//   1-bank:N-SW  → one primary row (txn set, primary sw set) +
+//                  linked_expenses JSON holding extra SW expense data.
+//                  actual_amount = sum of all user_shares in the cluster.
+//   N-bank:1-SW  → one row per bank txn, each pointing at the same
+//                  splitwise_expense_id, actual_amount proportional.
+//   Both cases always land in PENDING — user must confirm.
 export type MatchReason = {
   kind: "amount" | "date" | "text" | "currency";
   weight: number;
   detail: string;
+};
+
+// Snapshot of a linked Splitwise expense stored inline on a 1:N row so the
+// UI can render it without extra round-trips.
+export type LinkedExpense = {
+  id: string;
+  description: string | null;
+  userShare: number;
+  cost: number;
 };
 
 export const reconciliations = pgTable(
@@ -332,6 +350,10 @@ export const reconciliations = pgTable(
     state: text("state").notNull(),
     confidence: numeric("confidence", { precision: 3, scale: 2 }),
     matchReasons: jsonb("match_reasons").$type<MatchReason[]>(),
+    // N:M clustering fields (null on all 1:1 rows — fully backward-compatible).
+    nmGroupId: text("nm_group_id"),
+    // 1:N only: extra SW expenses beyond the primary one in this cluster.
+    linkedExpenses: jsonb("linked_expenses").$type<LinkedExpense[]>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (r) => [

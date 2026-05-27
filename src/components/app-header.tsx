@@ -57,6 +57,9 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
       <NavLink href="/reconcile" testid="nav-review" onClick={close}>
         Review
       </NavLink>
+      <NavLink href="/merchants" testid="nav-merchants" onClick={close}>
+        Merchants
+      </NavLink>
       <button
         type="button"
         data-testid="sign-out-btn"
