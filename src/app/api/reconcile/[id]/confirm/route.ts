@@ -13,21 +13,49 @@ export async function POST(
     return new Response("Unauthorized", { status: 401 });
   }
   const { id } = await params;
+  const userId = session.user.id;
 
-  const result = await db
-    .update(reconciliations)
-    .set({ state: STATES.USER_CONFIRMED })
+  // Fetch the row so we know whether it belongs to an N:M group.
+  const [row] = await db
+    .select({ id: reconciliations.id, nmGroupId: reconciliations.nmGroupId })
+    .from(reconciliations)
     .where(
       and(
         eq(reconciliations.id, id),
-        eq(reconciliations.userId, session.user.id),
+        eq(reconciliations.userId, userId),
         eq(reconciliations.state, STATES.PENDING),
       ),
-    )
-    .returning({ id: reconciliations.id });
+    );
 
-  if (result.length === 0) {
+  if (!row) {
     return new Response("Not found or not in pending state", { status: 404 });
   }
+
+  if (row.nmGroupId) {
+    // N:M group — confirm every row that shares this group ID so all cluster
+    // members transition together.
+    await db
+      .update(reconciliations)
+      .set({ state: STATES.USER_CONFIRMED })
+      .where(
+        and(
+          eq(reconciliations.userId, userId),
+          eq(reconciliations.nmGroupId, row.nmGroupId),
+          eq(reconciliations.state, STATES.PENDING),
+        ),
+      );
+  } else {
+    // Standard 1:1 row.
+    await db
+      .update(reconciliations)
+      .set({ state: STATES.USER_CONFIRMED })
+      .where(
+        and(
+          eq(reconciliations.id, id),
+          eq(reconciliations.userId, userId),
+        ),
+      );
+  }
+
   return Response.json({ ok: true });
 }
