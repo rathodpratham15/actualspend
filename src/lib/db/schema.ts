@@ -144,6 +144,8 @@ export const transactions = pgTable(
     date: date("date").notNull(),
     name: text("name").notNull(),
     merchantName: text("merchant_name"),
+    effectiveMerchant: text("effective_merchant"),
+    channel: text("channel"),
     // Layer 1: raw Plaid taxonomy. Immutable; preserved for ML/debugging.
     plaidCategory: jsonb("plaid_category").$type<PlaidCategory>(),
     // Layer 2: our canonical bucket. Nullable until classifier runs.
