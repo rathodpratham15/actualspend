@@ -19,6 +19,13 @@ export async function POST() {
       products: [Products.Transactions],
       country_codes: [CountryCode.Us],
       language: "en",
+      // Register the webhook URL so Plaid pushes SYNC_UPDATES_AVAILABLE
+      // whenever new transactions arrive. Only set when the env var is
+      // present — omitting it in local dev is fine (webhook receiver won't
+      // be reachable anyway).
+      ...(process.env.PLAID_WEBHOOK_URL
+        ? { webhook: process.env.PLAID_WEBHOOK_URL }
+        : {}),
     });
     return Response.json({ link_token: response.data.link_token });
   } catch (err) {
