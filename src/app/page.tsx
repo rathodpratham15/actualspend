@@ -14,10 +14,12 @@ import {
   findReauthInstitution,
 } from "@/lib/dashboard/counts";
 import { parsePeriod, formatPeriod, type Period } from "@/lib/dashboard/period";
+import { computeSpendTimeline } from "@/lib/dashboard/spend-timeline";
 
 import { AppHeader } from "@/components/app-header";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { DashboardHero } from "@/components/dashboard-hero";
+import { SpendChart } from "@/components/spend-chart";
 
 const CATEGORY_LABEL: Record<string, string> = {
   GROCERIES: "Groceries",
@@ -102,12 +104,14 @@ export default async function DashboardPage({
     );
   }
 
-  const [metrics, categoryRows, counts, reauthInstitution] = await Promise.all([
-    computeDashboardMetrics(user.id, period),
-    computeCategoryBreakdown(user.id, period),
-    computeReconSectionCounts(user.id),
-    findReauthInstitution(user.id),
-  ]);
+  const [metrics, categoryRows, counts, reauthInstitution, timeline] =
+    await Promise.all([
+      computeDashboardMetrics(user.id, period),
+      computeCategoryBreakdown(user.id, period),
+      computeReconSectionCounts(user.id),
+      findReauthInstitution(user.id),
+      computeSpendTimeline(user.id),
+    ]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -165,6 +169,7 @@ export default async function DashboardPage({
           <span className="font-mono">{counts.personal}</span> personal
         </Link>
 
+        <SpendChart data={timeline} />
         <CategorySection rows={categoryRows} />
       </main>
     </div>
