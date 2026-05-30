@@ -1,19 +1,46 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
+import Credentials from "next-auth/providers/credentials";
 import { eq } from "drizzle-orm";
+import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 
-// Auth.js v5 + Google. JWT sessions (no DB-backed session table needed).
-// Ported from the dad-gift project pattern; trimmed for single-user v1
-// (no Credentials provider, no admin allowlist, no firstName/lastName split).
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  // AUTH_GOOGLE_ID / AUTH_GOOGLE_SECRET are auto-picked up from env.
-  providers: [Google],
+  providers: [
+    Google,
+    Credentials({
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        const email = credentials?.email as string | undefined;
+        const password = credentials?.password as string | undefined;
+        if (!email || !password) return null;
+
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(eq(users.email, email.toLowerCase().trim()))
+          .limit(1);
+
+        if (!user?.passwordHash) return null;
+
+        const valid = await bcrypt.compare(password, user.passwordHash);
+        if (!valid) return null;
+
+        return { id: user.id, email: user.email, name: user.name };
+      },
+    }),
+  ],
   session: { strategy: "jwt" },
   pages: { signIn: "/login", error: "/login" },
   callbacks: {
     async signIn({ user, account }) {
+      // Credentials sign-ins are already verified in authorize(); just pass through.
+      if (account?.provider === "credentials") return true;
+
       if (account?.provider !== "google" || !user.email) return false;
 
       const [existing] = await db
@@ -23,7 +50,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         .limit(1);
 
       if (existing) {
-        // Backfill profile image if we didn't have it before.
         if (!existing.image && user.image) {
           await db
             .update(users)
