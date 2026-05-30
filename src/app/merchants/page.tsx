@@ -6,7 +6,10 @@ import { RECONCILIATION_TYPES, STATES } from "@/lib/reconciliation/types";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { AppHeader } from "@/components/app-header";
 import { MonthPicker } from "@/components/month-picker";
+import { PaginationControls } from "@/components/pagination-controls";
 import { usd, dateShort } from "@/lib/format";
+
+const PAGE_SIZE = 10;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -23,12 +26,25 @@ function parseYearMonth(raw: string | undefined): string {
   return currentYearMonth();
 }
 
+function parsePage(raw: string | undefined): number {
+  const n = parseInt(raw ?? "1", 10);
+  return isNaN(n) || n < 1 ? 1 : n;
+}
+
 function monthLabel(ym: string): string {
   const [y, m] = ym.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString("en-US", {
     month: "long",
     year: "numeric",
   });
+}
+
+function monthDateRange(yearMonth: string) {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const from = `${y}-${String(m).padStart(2, "0")}-01`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const to = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  return { from, to };
 }
 
 // ---------------------------------------------------------------------------
@@ -47,17 +63,13 @@ type ChannelRow = {
   channel: string;
   totalActual: number;
   txnCount: number;
-  lastSeen: string;
 };
 
 const BASE_WHERE = (userId: string) =>
   and(
     eq(reconciliations.userId, userId),
     isNull(transactions.deletedAt),
-    ne(
-      reconciliations.reconciliationType,
-      RECONCILIATION_TYPES.REIMBURSEMENT_RECEIVED,
-    ),
+    ne(reconciliations.reconciliationType, RECONCILIATION_TYPES.REIMBURSEMENT_RECEIVED),
     inArray(reconciliations.state, [
       STATES.AUTO_MATCHED,
       STATES.USER_CONFIRMED,
@@ -70,12 +82,22 @@ const BASE_WHERE = (userId: string) =>
 async function fetchMerchants(
   userId: string,
   yearMonth: string,
-): Promise<MerchantRow[]> {
-  const [y, m] = yearMonth.split("-").map(Number);
-  const from = `${y}-${String(m).padStart(2, "0")}-01`;
-  // Last day of month
-  const lastDay = new Date(y, m, 0).getDate();
-  const to = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  page: number,
+): Promise<{ rows: MerchantRow[]; total: number }> {
+  const { from, to } = monthDateRange(yearMonth);
+
+  const dateFilter = and(
+    sql`${transactions.date} >= ${from}`,
+    sql`${transactions.date} <= ${to}`,
+  );
+
+  const [{ total }] = await db
+    .select({
+      total: sql<number>`COUNT(DISTINCT COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name}))::int`,
+    })
+    .from(reconciliations)
+    .innerJoin(transactions, eq(transactions.id, reconciliations.transactionId))
+    .where(and(BASE_WHERE(userId), dateFilter));
 
   const rows = await db
     .select({
@@ -87,44 +109,35 @@ async function fetchMerchants(
     })
     .from(reconciliations)
     .innerJoin(transactions, eq(transactions.id, reconciliations.transactionId))
-    .where(
-      and(
-        BASE_WHERE(userId),
-        sql`${transactions.date} >= ${from}`,
-        sql`${transactions.date} <= ${to}`,
-      ),
-    )
+    .where(and(BASE_WHERE(userId), dateFilter))
     .groupBy(
       sql`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
       transactions.channel,
     )
     .orderBy(sql`SUM(${reconciliations.actualAmount}::numeric) DESC`)
-    .limit(50);
+    .limit(PAGE_SIZE)
+    .offset((page - 1) * PAGE_SIZE);
 
-  return rows.map((r) => ({
-    merchant: r.merchant,
-    channel: r.channel,
-    totalActual: Number(r.totalActual ?? 0),
-    txnCount: Number(r.txnCount ?? 0),
-    lastSeen: r.lastSeen ?? "",
-  }));
+  return {
+    rows: rows.map((r) => ({
+      merchant: r.merchant,
+      channel: r.channel,
+      totalActual: Number(r.totalActual ?? 0),
+      txnCount: Number(r.txnCount ?? 0),
+      lastSeen: r.lastSeen ?? "",
+    })),
+    total: Number(total ?? 0),
+  };
 }
 
-async function fetchChannels(
-  userId: string,
-  yearMonth: string,
-): Promise<ChannelRow[]> {
-  const [y, m] = yearMonth.split("-").map(Number);
-  const from = `${y}-${String(m).padStart(2, "0")}-01`;
-  const lastDay = new Date(y, m, 0).getDate();
-  const to = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+async function fetchChannels(userId: string, yearMonth: string): Promise<ChannelRow[]> {
+  const { from, to } = monthDateRange(yearMonth);
 
   const rows = await db
     .select({
       channel: transactions.channel,
       totalActual: sql<number>`SUM(${reconciliations.actualAmount}::numeric)`,
       txnCount: sql<number>`COUNT(DISTINCT ${reconciliations.id})::int`,
-      lastSeen: sql<string>`MAX(${transactions.date})`,
     })
     .from(reconciliations)
     .innerJoin(transactions, eq(transactions.id, reconciliations.transactionId))
@@ -145,7 +158,6 @@ async function fetchChannels(
       channel: r.channel,
       totalActual: Number(r.totalActual ?? 0),
       txnCount: Number(r.txnCount ?? 0),
-      lastSeen: r.lastSeen ?? "",
     }));
 }
 
@@ -163,21 +175,29 @@ export default async function MerchantsPage({
 
   const params = await searchParams;
   const yearMonth = parseYearMonth(params.m as string | undefined);
+  const page = parsePage(params.page as string | undefined);
 
-  const [merchants, channels] = await Promise.all([
-    fetchMerchants(session.user.id, yearMonth),
+  const [{ rows: merchants, total }, channels] = await Promise.all([
+    fetchMerchants(session.user.id, yearMonth, page),
     fetchChannels(session.user.id, yearMonth),
   ]);
 
-  const totalActual = merchants.reduce((s, m) => s + m.totalActual, 0);
+  const totalActual = channels.length
+    ? channels.reduce((s, c) => s + c.totalActual, 0)
+    : merchants.reduce((s, m) => s + m.totalActual, 0);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const hasChannels = channels.length > 0;
+
+  // Max actual on this page — used to scale the relative bars.
+  const pageMax = merchants[0]?.totalActual ?? 1;
 
   return (
     <div className="min-h-screen bg-background">
       <AppHeader variant="app" />
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10 pb-24">
-        {/* Header row */}
+        {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-xl tracking-tight font-medium">Merchants</h1>
@@ -202,13 +222,24 @@ export default async function MerchantsPage({
             No spend data for {monthLabel(yearMonth)}.
           </div>
         ) : hasChannels ? (
-          /* Two-column layout when delivery channels exist */
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
-            <MerchantTable rows={merchants} />
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">
+            <MerchantTable
+              rows={merchants}
+              pageMax={pageMax}
+              page={page}
+              totalPages={totalPages}
+              total={total}
+            />
             <ChannelTable rows={channels} />
           </div>
         ) : (
-          <MerchantTable rows={merchants} />
+          <MerchantTable
+            rows={merchants}
+            pageMax={pageMax}
+            page={page}
+            totalPages={totalPages}
+            total={total}
+          />
         )}
       </main>
     </div>
@@ -219,7 +250,21 @@ export default async function MerchantsPage({
 // Tables
 // ---------------------------------------------------------------------------
 
-function MerchantTable({ rows }: { rows: MerchantRow[] }) {
+function MerchantTable({
+  rows,
+  pageMax,
+  page,
+  totalPages,
+  total,
+}: {
+  rows: MerchantRow[];
+  pageMax: number;
+  page: number;
+  totalPages: number;
+  total: number;
+}) {
+  const offset = (page - 1) * PAGE_SIZE;
+
   return (
     <div className="bg-surface border border-border rounded-xl overflow-hidden">
       <table className="w-full text-sm">
@@ -243,40 +288,60 @@ function MerchantTable({ rows }: { rows: MerchantRow[] }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {rows.map((r, i) => (
-            <tr key={`${r.merchant}-${i}`} className="hover:bg-background/50 transition-colors">
-              <td className="px-4 py-3 font-mono text-xs text-secondary text-right">
-                {i + 1}
-              </td>
-              <td className="px-3 py-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="truncate">{r.merchant}</span>
-                  {r.channel && (
-                    <span className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded bg-border/60 text-secondary hidden sm:inline">
-                      {r.channel}
-                    </span>
-                  )}
-                </div>
-              </td>
-              <td className="px-3 py-3 text-right font-mono text-xs text-secondary hidden sm:table-cell">
-                {r.txnCount}
-              </td>
-              <td className="px-3 py-3 text-right font-mono text-xs text-secondary hidden sm:table-cell">
-                {r.lastSeen ? dateShort(r.lastSeen) : "—"}
-              </td>
-              <td className="px-4 py-3 text-right font-mono text-sm">
-                {usd(r.totalActual, { decimals: 0 })}
-              </td>
-            </tr>
-          ))}
+          {rows.map((r, i) => {
+            const barPct = pageMax > 0 ? (r.totalActual / pageMax) * 100 : 0;
+            return (
+              <tr key={`${r.merchant}-${i}`} className="hover:bg-background/50 transition-colors">
+                <td className="px-4 py-3 font-mono text-xs text-secondary text-right align-top pt-4">
+                  {offset + i + 1}
+                </td>
+                <td className="px-3 py-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="truncate">{r.merchant}</span>
+                    {r.channel && (
+                      <span className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded bg-border/60 text-secondary hidden sm:inline">
+                        {r.channel}
+                      </span>
+                    )}
+                  </div>
+                  {/* Relative spend bar */}
+                  <div className="mt-1.5 h-1 bg-border rounded-full overflow-hidden w-full">
+                    <div
+                      className="h-full bg-foreground/40 rounded-full"
+                      style={{ width: `${barPct.toFixed(1)}%` }}
+                    />
+                  </div>
+                </td>
+                <td className="px-3 py-3 text-right font-mono text-xs text-secondary hidden sm:table-cell">
+                  {r.txnCount}
+                </td>
+                <td className="px-3 py-3 text-right font-mono text-xs text-secondary hidden sm:table-cell">
+                  {r.lastSeen ? dateShort(r.lastSeen) : "—"}
+                </td>
+                <td className="px-4 py-3 text-right font-mono text-sm">
+                  {usd(r.totalActual, { decimals: 0 })}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
+      <Suspense>
+        <PaginationControls
+          page={page}
+          totalPages={totalPages}
+          totalRows={total}
+          pageSize={PAGE_SIZE}
+        />
+      </Suspense>
     </div>
   );
 }
 
 function ChannelTable({ rows }: { rows: ChannelRow[] }) {
   const total = rows.reduce((s, r) => s + r.totalActual, 0);
+  const max = rows[0]?.totalActual ?? 1;
+
   return (
     <div className="bg-surface border border-border rounded-xl overflow-hidden">
       <div className="px-4 py-2.5 border-b border-border">
@@ -284,35 +349,35 @@ function ChannelTable({ rows }: { rows: ChannelRow[] }) {
           By channel
         </span>
       </div>
-      <table className="w-full text-sm">
-        <tbody className="divide-y divide-border">
-          {rows.map((r) => {
-            const pct = total > 0 ? (r.totalActual / total) * 100 : 0;
-            return (
-              <tr key={r.channel} className="hover:bg-background/50 transition-colors">
-                <td className="px-4 py-3">
-                  <div>{r.channel}</div>
-                  {/* Inline mini-bar */}
-                  <div className="mt-1.5 h-px bg-border w-full relative">
-                    <div
-                      className="absolute left-0 top-0 h-px bg-foreground/50"
-                      style={{ width: `${pct.toFixed(1)}%` }}
-                    />
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="font-mono text-sm">
-                    {usd(r.totalActual, { decimals: 0 })}
-                  </div>
-                  <div className="text-[11px] text-secondary font-mono mt-0.5">
+      <div className="divide-y divide-border">
+        {rows.map((r) => {
+          const barPct = max > 0 ? (r.totalActual / max) * 100 : 0;
+          return (
+            <div key={r.channel} className="px-4 py-3 hover:bg-background/50 transition-colors">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm">{r.channel}</span>
+                <div className="text-right shrink-0">
+                  <div className="font-mono text-sm">{usd(r.totalActual, { decimals: 0 })}</div>
+                  <div className="text-[11px] text-secondary font-mono">
                     {r.txnCount} txn{r.txnCount !== 1 ? "s" : ""}
                   </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                </div>
+              </div>
+              {/* Bar */}
+              <div className="mt-2 h-1.5 bg-border rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-foreground/50 rounded-full"
+                  style={{ width: `${barPct.toFixed(1)}%` }}
+                />
+              </div>
+              {/* % of channel total */}
+              <div className="mt-1 text-[10px] text-secondary font-mono">
+                {total > 0 ? ((r.totalActual / total) * 100).toFixed(0) : 0}% of channel spend
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
