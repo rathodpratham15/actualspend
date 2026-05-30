@@ -88,12 +88,14 @@ export default async function LoginPage() {
             {/* Email + password — client component handles submission */}
             <CredentialsForm mode="login" />
 
-            <p className="mt-4 text-center text-xs text-secondary">
-              No account?{" "}
-              <Link href="/register" className="text-foreground hover:underline underline-offset-4">
-                Sign up
+            <div className="mt-3 flex items-center justify-between text-xs text-secondary">
+              <Link href="/forgot-password" className="hover:text-foreground">
+                Forgot password?
               </Link>
-            </p>
+              <Link href="/register" className="text-foreground hover:underline underline-offset-4">
+                Create account
+              </Link>
+            </div>
 
             <div className="mt-6 text-center">
               <Link href="/security" className="text-xs text-secondary hover:text-foreground">
