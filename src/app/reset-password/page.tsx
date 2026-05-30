@@ -90,7 +90,7 @@ function ResetForm() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="At least 8 characters"
-          className="w-full h-9 px-3 rounded-md border border-border bg-background text-sm placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-foreground/30"
+          className="w-full h-9 px-3 rounded-md border border-border bg-background text-sm placeholder:text-foreground/40 focus:outline-none focus:ring-1 focus:ring-foreground/30"
         />
       </div>
       <div>
@@ -105,7 +105,7 @@ function ResetForm() {
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
           placeholder="Same password again"
-          className="w-full h-9 px-3 rounded-md border border-border bg-background text-sm placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-foreground/30"
+          className="w-full h-9 px-3 rounded-md border border-border bg-background text-sm placeholder:text-foreground/40 focus:outline-none focus:ring-1 focus:ring-foreground/30"
         />
       </div>
       {error && <p className="text-xs text-red-500">{error}</p>}

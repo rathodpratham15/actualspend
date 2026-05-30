@@ -67,7 +67,7 @@ export function CredentialsForm({ mode }: Props) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Your name"
-            className="w-full h-9 px-3 rounded-md border border-border bg-background text-sm placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-foreground/30"
+            className="w-full h-9 px-3 rounded-md border border-border bg-background text-sm placeholder:text-foreground/40 focus:outline-none focus:ring-1 focus:ring-foreground/30"
           />
         </div>
       )}
@@ -84,7 +84,7 @@ export function CredentialsForm({ mode }: Props) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@domain.com"
-          className="w-full h-9 px-3 rounded-md border border-border bg-background text-sm placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-foreground/30"
+          className="w-full h-9 px-3 rounded-md border border-border bg-background text-sm placeholder:text-foreground/40 focus:outline-none focus:ring-1 focus:ring-foreground/30"
         />
       </div>
 
@@ -101,7 +101,7 @@ export function CredentialsForm({ mode }: Props) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder={mode === "register" ? "At least 8 characters" : "••••••••"}
-          className="w-full h-9 px-3 rounded-md border border-border bg-background text-sm placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-foreground/30"
+          className="w-full h-9 px-3 rounded-md border border-border bg-background text-sm placeholder:text-foreground/40 focus:outline-none focus:ring-1 focus:ring-foreground/30"
         />
       </div>
 
