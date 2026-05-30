@@ -40,8 +40,15 @@ export type RateLimitResult = {
 export async function checkRateLimit(key: string): Promise<RateLimitResult> {
   const lim = getLimiter();
   if (!lim) return { ok: true };
-  const { success, limit, remaining, reset } = await lim.limit(key);
-  return { ok: success, limit, remaining, reset };
+  try {
+    const { success, limit, remaining, reset } = await lim.limit(key);
+    return { ok: success, limit, remaining, reset };
+  } catch (err) {
+    // Upstash quota exhausted, network error, etc. — fail open so the app
+    // stays functional. Log so it's visible in Sentry / Vercel logs.
+    console.error("[rate-limit] Upstash error, failing open:", err);
+    return { ok: true };
+  }
 }
 
 // Convenience: returns a 429 Response when limit hit, otherwise null. Use:
