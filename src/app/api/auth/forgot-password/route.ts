@@ -30,8 +30,16 @@ export async function POST(req: Request) {
     .where(eq(users.email, email))
     .limit(1);
 
-  // Only allow reset for accounts with a password (not Google-only).
-  if (!user?.passwordHash) return Response.json({ ok: true });
+  // No account with this email at all — stay silent (don't confirm existence).
+  if (!user) return Response.json({ ok: true });
+
+  // Account exists but was created via Google — tell the user explicitly.
+  if (!user.passwordHash) {
+    return Response.json(
+      { error: "This account uses Google sign-in. Use 'Continue with Google' on the login page." },
+      { status: 400 },
+    );
+  }
 
   // Invalidate any existing unexpired tokens for this user.
   await db
