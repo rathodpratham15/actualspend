@@ -8,7 +8,7 @@ import { Resend } from "resend";
 function getResend() {
   return new Resend(process.env.RESEND_API_KEY ?? "");
 }
-const FROM = process.env.EMAIL_FROM ?? "ActualSpend <noreply@actualspend.app>";
+const FROM = process.env.EMAIL_FROM ?? "ActualSpend <onboarding@resend.dev>";
 
 export async function sendPasswordResetEmail(
   to: string,
