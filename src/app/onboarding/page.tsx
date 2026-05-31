@@ -199,14 +199,12 @@ export default function OnboardingPage() {
                   onChange={setOwnShare}
                   placeholder="510"
                 />
-                {totalRent && ownShare && Number(totalRent) > 0 && (
+                {totalRent && ownShare && Number(totalRent) > 0 && Number(ownShare) > 0 && (
                   <p className="mt-1.5 text-xs text-secondary">
-                    {Math.round(
-                      (Number(ownShare) / Number(totalRent)) * 100,
+                    {Math.round((Number(ownShare) / Number(totalRent)) * 100)}% of total
+                    {Number(totalRent) > Number(ownShare) && (
+                      <> · <span className="text-foreground">${(Number(totalRent) - Number(ownShare)).toLocaleString()}</span> to collect from roommates</>
                     )}
-                    % of total ·{" "}
-                    {Math.round(Number(totalRent) / Number(ownShare))} people
-                    if split equally
                   </p>
                 )}
               </div>
