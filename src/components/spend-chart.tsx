@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   BarChart,
   Bar,
@@ -14,19 +14,14 @@ import type { MonthlyPoint } from "@/lib/dashboard/spend-timeline";
 
 type Props = { data: MonthlyPoint[] };
 
-// Custom tick components use style={{ fill }} (CSS property) instead of the
-// SVG fill attribute — CSS custom properties only resolve reliably via CSS,
-// not as SVG presentation attributes.
+// currentColor inherits the parent element's CSS `color` value, which IS
+// resolved through the cascade in both light and dark mode. opacity 0.5
+// gives the muted-label look without relying on a specific CSS variable.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function XTick({ x, y, payload }: any) {
   return (
-    <text
-      x={x}
-      y={y}
-      dy={12}
-      textAnchor="middle"
-      style={{ fontSize: 11, fill: "var(--secondary)" }}
-    >
+    <text x={x} y={y} dy={12} textAnchor="middle"
+      style={{ fontSize: 11, fill: "currentColor", opacity: 0.5 }}>
       {payload.value}
     </text>
   );
@@ -34,13 +29,8 @@ function XTick({ x, y, payload }: any) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function YTick({ x, y, payload }: any) {
   return (
-    <text
-      x={x}
-      y={y}
-      dy={4}
-      textAnchor="end"
-      style={{ fontSize: 11, fill: "var(--secondary)" }}
-    >
+    <text x={x} y={y} dy={4} textAnchor="end"
+      style={{ fontSize: 11, fill: "currentColor", opacity: 0.5 }}>
       {fmt(payload.value)}
     </text>
   );
@@ -86,6 +76,12 @@ function CustomTooltip({ active, payload, label }: any) {
 
 export function SpendChart({ data }: Props) {
   const [showBank, setShowBank] = useState(false);
+  // Delay rendering until after mount — ResponsiveContainer measures its DOM
+  // container and returns width/height -1 during SSR, which causes Recharts
+  // to log errors and render nothing.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   if (data.length === 0) return null;
 
   const lastIdx = data.length - 1;
@@ -110,7 +106,7 @@ export function SpendChart({ data }: Props) {
       </div>
 
       <div className="h-52">
-        <ResponsiveContainer width="100%" height="100%">
+        {!mounted ? <div className="h-full" /> : <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
             barGap={3}
@@ -155,7 +151,7 @@ export function SpendChart({ data }: Props) {
               ))}
             </Bar>
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer>}
       </div>
 
       <div className="mt-1 text-[11px] text-secondary text-right font-mono">
