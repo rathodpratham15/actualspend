@@ -14,6 +14,38 @@ import type { MonthlyPoint } from "@/lib/dashboard/spend-timeline";
 
 type Props = { data: MonthlyPoint[] };
 
+// Custom tick components use style={{ fill }} (CSS property) instead of the
+// SVG fill attribute — CSS custom properties only resolve reliably via CSS,
+// not as SVG presentation attributes.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function XTick({ x, y, payload }: any) {
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={12}
+      textAnchor="middle"
+      style={{ fontSize: 11, fill: "var(--secondary)" }}
+    >
+      {payload.value}
+    </text>
+  );
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function YTick({ x, y, payload }: any) {
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={4}
+      textAnchor="end"
+      style={{ fontSize: 11, fill: "var(--secondary)" }}
+    >
+      {fmt(payload.value)}
+    </text>
+  );
+}
+
 function fmt(n: number): string {
   if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
   return `$${Math.round(n)}`;
@@ -87,13 +119,12 @@ export function SpendChart({ data }: Props) {
           >
             <XAxis
               dataKey="month"
-              tick={{ fontSize: 11, fill: "var(--secondary)" }}
+              tick={<XTick />}
               axisLine={false}
               tickLine={false}
             />
             <YAxis
-              tickFormatter={fmt}
-              tick={{ fontSize: 11, fill: "var(--secondary)" }}
+              tick={<YTick />}
               axisLine={false}
               tickLine={false}
               width={44}
