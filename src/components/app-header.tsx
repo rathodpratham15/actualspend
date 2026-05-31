@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Logo } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
+import { UserMenu } from "./user-menu";
 
 const navItem =
   "text-sm text-secondary hover:text-foreground transition-colors px-2 py-1 rounded";
@@ -40,13 +41,13 @@ function NavLink({
 }
 
 export function AppHeader({ variant = "app" }: { variant?: Variant }) {
-  const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
   const onLoginPage = pathname === "/login";
 
-  const appLinks = (
+  // Nav links shared between desktop and mobile drawer (no Sign out — that's in UserMenu).
+  const appNavLinks = (
     <>
       <NavLink href="/" exact testid="nav-dashboard" onClick={close}>
         Dashboard
@@ -60,17 +61,15 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
       <NavLink href="/merchants" testid="nav-merchants" onClick={close}>
         Merchants
       </NavLink>
-      <button
-        type="button"
-        data-testid="sign-out-btn"
-        onClick={() => {
-          close();
-          router.push("/welcome");
-        }}
-        className={`${navItem} cursor-pointer text-left`}
-      >
-        Sign out
-      </button>
+    </>
+  );
+
+  // Mobile drawer includes Sign out as a text link since UserMenu avatar
+  // isn't prominent enough in a narrow drawer context.
+  const appLinksMobile = (
+    <>
+      {appNavLinks}
+      <UserMenu onClose={close} />
     </>
   );
 
@@ -135,9 +134,15 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
 
         {/* Desktop nav — full width >= sm */}
         <nav className="hidden sm:flex items-center gap-1">
-          {variant === "app" ? appLinks : marketingLinksDesktop}
+          {variant === "app" ? appNavLinks : marketingLinksDesktop}
           <span className="mx-2 h-5 w-px bg-border" />
           <ThemeToggle />
+          {variant === "app" && (
+            <>
+              <span className="mx-1 h-5 w-px bg-border" />
+              <UserMenu />
+            </>
+          )}
         </nav>
 
         {/* Mobile: theme toggle stays visible, everything else folds into a hamburger */}
@@ -184,7 +189,7 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
           className="sm:hidden border-t border-border bg-background"
         >
           <nav className="flex flex-col px-4 py-3 gap-1">
-            {variant === "app" ? appLinks : marketingLinksMobile}
+            {variant === "app" ? appLinksMobile : marketingLinksMobile}
           </nav>
         </div>
       )}
