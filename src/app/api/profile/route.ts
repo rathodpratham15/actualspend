@@ -28,8 +28,12 @@ export async function PATCH(req: Request) {
 
   const allowed = [
     "monthlyRent",
+    "totalMonthlyRent",
+    "ownRentShare",
     "rentPaidBy",
     "rentPaymentMethod",
+    "roommatePaybackMethods",
+    "roommatePaybackPattern",
     "groceryChannels",
     "onboardingCompletedAt",
   ] as const;

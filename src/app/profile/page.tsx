@@ -51,7 +51,7 @@ export default async function ProfilePage() {
       .where(eq(userRoommates.userId, session.user.id)),
   ]);
 
-  const hasRent = !!profile?.monthlyRent;
+  const hasRent = !!(profile?.totalMonthlyRent || profile?.monthlyRent);
   const hasGroceries = (profile?.groceryChannels?.length ?? 0) > 0;
   const hasRoommates = roommates.length > 0;
 
@@ -61,7 +61,15 @@ export default async function ProfilePage() {
       label: "Rent details",
       done: hasRent,
       description: hasRent
-        ? `$${Number(profile!.monthlyRent).toLocaleString()}/mo · ${RENT_PAID_BY_LABELS[profile!.rentPaidBy ?? ""] ?? profile?.rentPaidBy ?? ""}${profile?.rentPaymentMethod ? ` · ${PAYMENT_LABELS[profile.rentPaymentMethod] ?? profile.rentPaymentMethod}` : ""}`
+        ? (() => {
+            const total = profile!.totalMonthlyRent ?? profile!.monthlyRent;
+            const own = profile!.ownRentShare;
+            const base = own
+              ? `$${Number(own).toLocaleString()} your share · $${Number(total).toLocaleString()} total`
+              : `$${Number(total).toLocaleString()}/mo`;
+            const method = profile?.rentPaymentMethod ? ` · ${PAYMENT_LABELS[profile.rentPaymentMethod] ?? profile.rentPaymentMethod}` : "";
+            return base + method;
+          })()
         : "Not set",
     },
     {

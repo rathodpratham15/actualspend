@@ -98,9 +98,16 @@ export const userProfiles = pgTable("user_profile", {
   userId: text("user_id")
     .primaryKey()
     .references(() => users.id, { onDelete: "cascade" }),
-  monthlyRent: numeric("monthly_rent", { precision: 10, scale: 2 }),
+  monthlyRent: numeric("monthly_rent", { precision: 10, scale: 2 }),   // kept for compat
+  // Rent v2 — captures the collector model (user fronts full rent, collects from roommates).
+  totalMonthlyRent: numeric("total_monthly_rent", { precision: 10, scale: 2 }), // full household rent
+  ownRentShare: numeric("own_rent_share", { precision: 10, scale: 2 }),          // user's personal slice
   rentPaidBy: text("rent_paid_by"),       // 'self' | 'roommate' | 'split'
   rentPaymentMethod: text("rent_payment_method"), // 'bank_transfer'|'check'|'zelle'|'venmo'|'credit_card'|'other'
+  // How roommates pay the user back for rent.
+  roommatePaybackMethods: text("roommate_payback_methods").array(), // ['venmo','zelle','cash','other']
+  // 'rent_only' | 'rent_and_splitwise' | 'mixed' — some bundle rent + Splitwise in one payment
+  roommatePaybackPattern: text("roommate_payback_pattern"),
   groceryChannels: text("grocery_channels").array(),
   onboardingCompletedAt: timestamp("onboarding_completed_at"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
