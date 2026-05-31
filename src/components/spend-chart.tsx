@@ -87,20 +87,20 @@ export function SpendChart({ data }: Props) {
           >
             <XAxis
               dataKey="month"
-              tick={{ fontSize: 11, fill: "var(--color-secondary, #888)" }}
+              tick={{ fontSize: 11, fill: "var(--secondary)" }}
               axisLine={false}
               tickLine={false}
             />
             <YAxis
               tickFormatter={fmt}
-              tick={{ fontSize: 11, fill: "var(--color-secondary, #888)" }}
+              tick={{ fontSize: 11, fill: "var(--secondary)" }}
               axisLine={false}
               tickLine={false}
               width={44}
             />
             <Tooltip
               content={<CustomTooltip />}
-              cursor={{ fill: "var(--color-surface, #f5f5f5)", opacity: 0.6 }}
+              cursor={{ fill: "var(--surface)", opacity: 0.6 }}
             />
 
             {/* Bank outflow — subtle background bar, only when toggled */}
@@ -108,7 +108,7 @@ export function SpendChart({ data }: Props) {
               <Bar
                 dataKey="bank"
                 radius={[3, 3, 0, 0]}
-                fill="var(--color-foreground, #111)"
+                fill="var(--foreground)"
                 fillOpacity={0.12}
               />
             )}
@@ -118,7 +118,7 @@ export function SpendChart({ data }: Props) {
               {data.map((_, i) => (
                 <Cell
                   key={i}
-                  fill="var(--color-foreground, #111)"
+                  fill="var(--foreground)"
                   fillOpacity={i === lastIdx ? 1 : 0.5}
                 />
               ))}
