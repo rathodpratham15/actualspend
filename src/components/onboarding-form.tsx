@@ -83,6 +83,7 @@ export function OnboardingForm({ friends, savedRoommateIds, hasSplitwise, initia
   const [paybackPattern, setPaybackPattern] = useState("");
   const [groceries, setGroceries] = useState<Set<string>>(new Set());
   const [roommates, setRoommates] = useState<Set<number>>(new Set(savedRoommateIds));
+  const [roommateSearch, setRoommateSearch] = useState("");
 
   const toggle = <T,>(set: Set<T>, id: T): Set<T> => {
     const next = new Set(set);
@@ -146,7 +147,7 @@ export function OnboardingForm({ friends, savedRoommateIds, hasSplitwise, initia
   const stepIdx = steps.indexOf(step);
 
   return (
-    <main className="max-w-lg mx-auto px-4 sm:px-6 pt-10 pb-24">
+    <main className={`${step === "roommates" ? "max-w-2xl" : "max-w-lg"} mx-auto px-4 sm:px-6 pt-10 pb-24 transition-all`}>
       {/* Progress dots */}
       <div className="flex items-center gap-2 mb-8">
         {steps.map((s, i) => (
@@ -242,32 +243,73 @@ export function OnboardingForm({ friends, savedRoommateIds, hasSplitwise, initia
 
       {/* ── Roommates ── */}
       {step === "roommates" && (
-        <div>
+        <div className="w-full max-w-2xl">
           <h1 className="text-xl font-medium tracking-tight">Which of these are your roommates?</h1>
           <p className="mt-1 text-sm text-secondary">
             We&apos;ll give extra weight to shared expenses with roommates when reconciling your spending.
           </p>
+
           {friends.length === 0 ? (
             <div className="mt-8 text-sm text-secondary bg-surface border border-border rounded-xl p-5">
               No Splitwise friends found. Sync Splitwise from the Accounts page first.
             </div>
           ) : (
-            <div className="mt-8 space-y-2 max-h-80 overflow-y-auto">
-              {friends.map((f) => (
-                <label key={f.splitwiseUserId} className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${roommates.has(f.splitwiseUserId) ? "border-foreground bg-surface" : "border-border hover:bg-surface"}`}>
-                  <input type="checkbox" checked={roommates.has(f.splitwiseUserId)} onChange={() => setRoommates(toggle(roommates, f.splitwiseUserId))} className="accent-foreground" />
-                  <div className="min-w-0">
-                    <div className="text-sm">{friendName(f)}</div>
-                    {f.email && <div className="text-xs text-secondary truncate">{f.email}</div>}
+            <>
+              {/* Search */}
+              <div className="mt-6 relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search by name or email…"
+                  value={roommateSearch}
+                  onChange={(e) => setRoommateSearch(e.target.value)}
+                  className="w-full h-9 pl-8 pr-3 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-foreground/30"
+                />
+              </div>
+
+              {/* Grid */}
+              {(() => {
+                const q = roommateSearch.toLowerCase();
+                const filtered = friends.filter((f) => {
+                  const name = friendName(f).toLowerCase();
+                  const email = (f.email ?? "").toLowerCase();
+                  return !q || name.includes(q) || email.includes(q);
+                });
+                return filtered.length === 0 ? (
+                  <p className="mt-6 text-sm text-secondary text-center">No matches for &quot;{roommateSearch}&quot;</p>
+                ) : (
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {filtered.map((f) => (
+                      <label
+                        key={f.splitwiseUserId}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${
+                          roommates.has(f.splitwiseUserId) ? "border-foreground bg-surface" : "border-border hover:bg-surface"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={roommates.has(f.splitwiseUserId)}
+                          onChange={() => setRoommates(toggle(roommates, f.splitwiseUserId))}
+                          className="accent-foreground shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium truncate">{friendName(f)}</div>
+                          {f.email && <div className="text-xs text-secondary truncate">{f.email}</div>}
+                        </div>
+                      </label>
+                    ))}
                   </div>
-                </label>
-              ))}
-            </div>
+                );
+              })()}
+            </>
           )}
+
           <div className="mt-8 flex items-center justify-between">
             <button type="button" onClick={() => submitRoommates(true)} className="text-sm text-secondary hover:text-foreground">Skip</button>
             <button type="button" disabled={busy} onClick={() => submitRoommates(false)} className="h-9 px-5 rounded-md bg-foreground text-background text-sm hover:opacity-90 disabled:opacity-60">
-              {busy ? "Saving…" : "Done →"}
+              {busy ? "Saving…" : roommates.size > 0 ? `Save ${roommates.size} roommate${roommates.size !== 1 ? "s" : ""} →` : "Done →"}
             </button>
           </div>
         </div>
