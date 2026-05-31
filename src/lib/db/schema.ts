@@ -92,6 +92,33 @@ export const passwordResetTokens = pgTable("password_reset_token", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Household profile collected during onboarding. One row per user; null fields
+// mean the user skipped that step.
+export const userProfiles = pgTable("user_profile", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  monthlyRent: numeric("monthly_rent", { precision: 10, scale: 2 }),
+  rentPaidBy: text("rent_paid_by"),       // 'self' | 'roommate' | 'split'
+  rentPaymentMethod: text("rent_payment_method"), // 'bank_transfer'|'check'|'zelle'|'venmo'|'credit_card'|'other'
+  groceryChannels: text("grocery_channels").array(),
+  onboardingCompletedAt: timestamp("onboarding_completed_at"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Which Splitwise friends the user has marked as roommates.
+export const userRoommates = pgTable(
+  "user_roommate",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    splitwiseUserId: integer("splitwise_user_id").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.splitwiseUserId] })],
+);
+
 // ---------- ActualSpend domain ----------
 
 // One row per Plaid Item (a bank connection). A user can connect multiple banks.

@@ -3,7 +3,12 @@ import { eq } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { plaidItems, splitwiseCredentials } from "@/lib/db/schema";
+import {
+  plaidItems,
+  splitwiseCredentials,
+  splitwiseFriends,
+  userProfiles,
+} from "@/lib/db/schema";
 import {
   computeCategoryBreakdown,
   computeDashboardMetrics,
@@ -15,11 +20,15 @@ import {
 } from "@/lib/dashboard/counts";
 import { parsePeriod, formatPeriod, type Period } from "@/lib/dashboard/period";
 import { computeSpendTimeline } from "@/lib/dashboard/spend-timeline";
+import { detectLikelyRent } from "@/lib/dashboard/detect-rent";
 
 import { AppHeader } from "@/components/app-header";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { DashboardHero } from "@/components/dashboard-hero";
 import { SpendChart } from "@/components/spend-chart";
+import { OnboardingBanner } from "@/components/onboarding-banner";
+import { RoommateModal } from "@/components/roommate-modal";
+import { Suspense } from "react";
 
 const CATEGORY_LABEL: Record<string, string> = {
   GROCERIES: "Groceries",
@@ -104,14 +113,20 @@ export default async function DashboardPage({
     );
   }
 
-  const [metrics, categoryRows, counts, reauthInstitution, timeline] =
+  const [metrics, categoryRows, counts, reauthInstitution, timeline, profile, friends] =
     await Promise.all([
       computeDashboardMetrics(user.id, period),
       computeCategoryBreakdown(user.id, period),
       computeReconSectionCounts(user.id),
       findReauthInstitution(user.id),
       computeSpendTimeline(user.id),
+      db.select().from(userProfiles).where(eq(userProfiles.userId, user.id)).limit(1).then(r => r[0] ?? null),
+      db.select().from(splitwiseFriends).where(eq(splitwiseFriends.userId, user.id)),
     ]);
+
+  // Show onboarding banner when profile is incomplete and user has transactions.
+  const showBanner = !profile?.onboardingCompletedAt && metrics.bankSpent > 0;
+  const detectedRent = showBanner ? await detectLikelyRent(user.id) : null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -169,8 +184,21 @@ export default async function DashboardPage({
           <span className="font-mono">{counts.personal}</span> personal
         </Link>
 
+        {showBanner && <OnboardingBanner detectedRent={detectedRent} />}
+
         <SpendChart data={timeline} />
         <CategorySection rows={categoryRows} />
+
+        {/* Roommate modal — shown once after Splitwise OAuth (?sw=connected) */}
+        <Suspense>
+          <RoommateModal friends={friends.map(f => ({
+            splitwiseUserId: f.splitwiseUserId,
+            firstName: f.firstName,
+            lastName: f.lastName,
+            email: f.email,
+            balance: f.balance,
+          }))} />
+        </Suspense>
       </main>
     </div>
   );
