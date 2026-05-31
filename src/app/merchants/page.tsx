@@ -83,7 +83,7 @@ async function fetchMerchants(
   userId: string,
   yearMonth: string,
   page: number,
-): Promise<{ rows: MerchantRow[]; total: number }> {
+): Promise<{ rows: MerchantRow[]; total: number; grandTotal: number; globalMax: number }> {
   const { from, to } = monthDateRange(yearMonth);
 
   const dateFilter = and(
@@ -91,13 +91,23 @@ async function fetchMerchants(
     sql`${transactions.date} <= ${to}`,
   );
 
-  const [{ total }] = await db
+  // All merchant totals for the month — used to derive count, grand total, and
+  // global max so bars scale consistently across pages.
+  const allTotals = await db
     .select({
-      total: sql<number>`COUNT(DISTINCT COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name}))::int`,
+      merchantTotal: sql<number>`SUM(${reconciliations.actualAmount}::numeric)`,
     })
     .from(reconciliations)
     .innerJoin(transactions, eq(transactions.id, reconciliations.transactionId))
-    .where(and(BASE_WHERE(userId), dateFilter));
+    .where(and(BASE_WHERE(userId), dateFilter))
+    .groupBy(
+      sql`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
+      transactions.channel,
+    );
+
+  const total = allTotals.length;
+  const grandTotal = allTotals.reduce((s, r) => s + Number(r.merchantTotal ?? 0), 0);
+  const globalMax = Math.max(...allTotals.map((r) => Number(r.merchantTotal ?? 0)), 1);
 
   const rows = await db
     .select({
@@ -126,7 +136,9 @@ async function fetchMerchants(
       txnCount: Number(r.txnCount ?? 0),
       lastSeen: r.lastSeen ?? "",
     })),
-    total: Number(total ?? 0),
+    total,
+    grandTotal,
+    globalMax,
   };
 }
 
@@ -177,20 +189,13 @@ export default async function MerchantsPage({
   const yearMonth = parseYearMonth(params.m as string | undefined);
   const page = parsePage(params.page as string | undefined);
 
-  const [{ rows: merchants, total }, channels] = await Promise.all([
+  const [{ rows: merchants, total, grandTotal, globalMax }, channels] = await Promise.all([
     fetchMerchants(session.user.id, yearMonth, page),
     fetchChannels(session.user.id, yearMonth),
   ]);
 
-  const totalActual = channels.length
-    ? channels.reduce((s, c) => s + c.totalActual, 0)
-    : merchants.reduce((s, m) => s + m.totalActual, 0);
-
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const hasChannels = channels.length > 0;
-
-  // Max actual on this page — used to scale the relative bars.
-  const pageMax = merchants[0]?.totalActual ?? 1;
 
   return (
     <div className="min-h-screen bg-background">
@@ -206,9 +211,9 @@ export default async function MerchantsPage({
             </p>
           </div>
           <div className="flex items-center gap-4">
-            {totalActual > 0 && (
+            {grandTotal > 0 && (
               <span className="text-sm font-mono text-secondary">
-                {usd(totalActual, { decimals: 0 })} total
+                {usd(grandTotal, { decimals: 0 })} total
               </span>
             )}
             <Suspense>
@@ -225,7 +230,7 @@ export default async function MerchantsPage({
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">
             <MerchantTable
               rows={merchants}
-              pageMax={pageMax}
+              globalMax={globalMax}
               page={page}
               totalPages={totalPages}
               total={total}
@@ -235,7 +240,7 @@ export default async function MerchantsPage({
         ) : (
           <MerchantTable
             rows={merchants}
-            pageMax={pageMax}
+            globalMax={globalMax}
             page={page}
             totalPages={totalPages}
             total={total}
@@ -252,13 +257,13 @@ export default async function MerchantsPage({
 
 function MerchantTable({
   rows,
-  pageMax,
+  globalMax,
   page,
   totalPages,
   total,
 }: {
   rows: MerchantRow[];
-  pageMax: number;
+  globalMax: number;
   page: number;
   totalPages: number;
   total: number;
@@ -289,7 +294,7 @@ function MerchantTable({
         </thead>
         <tbody className="divide-y divide-border">
           {rows.map((r, i) => {
-            const barPct = pageMax > 0 ? (r.totalActual / pageMax) * 100 : 0;
+            const barPct = globalMax > 0 ? (r.totalActual / globalMax) * 100 : 0;
             return (
               <tr key={`${r.merchant}-${i}`} className="hover:bg-background/50 transition-colors">
                 <td className="px-4 py-3 font-mono text-xs text-secondary text-right align-top pt-4">
