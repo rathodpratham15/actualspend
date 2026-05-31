@@ -33,6 +33,8 @@ export const users = pgTable("user", {
   email: text("email").unique().notNull(),
   emailVerified: timestamp("emailVerified", { mode: "date" }),
   image: text("image"),
+  // Bcrypt hash — null for Google-only accounts.
+  passwordHash: text("password_hash"),
 });
 
 export const accounts = pgTable(
@@ -74,6 +76,21 @@ export const verificationTokens = pgTable(
   },
   (vt) => [primaryKey({ columns: [vt.identifier, vt.token] })],
 );
+
+// Password-reset tokens. Raw token is sent in the email link; only the
+// SHA-256 hash is stored so a DB leak can't be replayed.
+export const passwordResetTokens = pgTable("password_reset_token", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { mode: "date" }).notNull(),
+  usedAt: timestamp("used_at", { mode: "date" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
 
 // ---------- ActualSpend domain ----------
 
