@@ -84,6 +84,8 @@ export function OnboardingForm({ friends, savedRoommateIds, hasSplitwise, initia
   const [groceries, setGroceries] = useState<Set<string>>(new Set());
   const [roommates, setRoommates] = useState<Set<number>>(new Set(savedRoommateIds));
   const [roommateSearch, setRoommateSearch] = useState("");
+  const [roommatePage, setRoommatePage] = useState(1);
+  const ROOMMATE_PAGE_SIZE = 8;
 
   const toggle = <T,>(set: Set<T>, id: T): Set<T> => {
     const next = new Set(set);
@@ -264,7 +266,7 @@ export function OnboardingForm({ friends, savedRoommateIds, hasSplitwise, initia
                   type="text"
                   placeholder="Search by name or email…"
                   value={roommateSearch}
-                  onChange={(e) => setRoommateSearch(e.target.value)}
+                  onChange={(e) => { setRoommateSearch(e.target.value); setRoommatePage(1); }}
                   className="w-full h-9 pl-8 pr-3 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-foreground/30"
                 />
               </div>
@@ -277,30 +279,80 @@ export function OnboardingForm({ friends, savedRoommateIds, hasSplitwise, initia
                   const email = (f.email ?? "").toLowerCase();
                   return !q || name.includes(q) || email.includes(q);
                 });
-                return filtered.length === 0 ? (
-                  <p className="mt-6 text-sm text-secondary text-center">No matches for &quot;{roommateSearch}&quot;</p>
-                ) : (
-                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {filtered.map((f) => (
-                      <label
-                        key={f.splitwiseUserId}
-                        className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${
-                          roommates.has(f.splitwiseUserId) ? "border-foreground bg-surface" : "border-border hover:bg-surface"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={roommates.has(f.splitwiseUserId)}
-                          onChange={() => setRoommates(toggle(roommates, f.splitwiseUserId))}
-                          className="accent-foreground shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium truncate">{friendName(f)}</div>
-                          {f.email && <div className="text-xs text-secondary truncate">{f.email}</div>}
+                const totalPages = Math.ceil(filtered.length / ROOMMATE_PAGE_SIZE);
+                const page = Math.min(roommatePage, Math.max(1, totalPages));
+                const paged = filtered.slice((page - 1) * ROOMMATE_PAGE_SIZE, page * ROOMMATE_PAGE_SIZE);
+                const from = (page - 1) * ROOMMATE_PAGE_SIZE + 1;
+                const to = Math.min(page * ROOMMATE_PAGE_SIZE, filtered.length);
+
+                if (filtered.length === 0) {
+                  return <p className="mt-6 text-sm text-secondary text-center">No matches for &quot;{roommateSearch}&quot;</p>;
+                }
+
+                return (
+                  <>
+                    <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {paged.map((f) => (
+                        <label
+                          key={f.splitwiseUserId}
+                          className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${
+                            roommates.has(f.splitwiseUserId) ? "border-foreground bg-surface" : "border-border hover:bg-surface"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={roommates.has(f.splitwiseUserId)}
+                            onChange={() => setRoommates(toggle(roommates, f.splitwiseUserId))}
+                            className="accent-foreground shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium truncate">{friendName(f)}</div>
+                            {f.email && <div className="text-xs text-secondary truncate">{f.email}</div>}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+
+                    {totalPages > 1 && (
+                      <div className="mt-3 flex items-center justify-between">
+                        <span className="text-xs font-mono text-secondary">
+                          {from}–{to} of {filtered.length}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={page === 1}
+                            onClick={() => setRoommatePage((p) => p - 1)}
+                            className="h-7 w-7 flex items-center justify-center rounded text-secondary hover:text-foreground hover:bg-surface disabled:opacity-30 transition-colors"
+                          >
+                            ‹
+                          </button>
+                          {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setRoommatePage(p)}
+                              className={`h-7 w-7 flex items-center justify-center rounded text-xs font-mono transition-colors ${
+                                p === page
+                                  ? "bg-foreground text-background"
+                                  : "text-secondary hover:text-foreground hover:bg-surface"
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            disabled={page === totalPages}
+                            onClick={() => setRoommatePage((p) => p + 1)}
+                            className="h-7 w-7 flex items-center justify-center rounded text-secondary hover:text-foreground hover:bg-surface disabled:opacity-30 transition-colors"
+                          >
+                            ›
+                          </button>
                         </div>
-                      </label>
-                    ))}
-                  </div>
+                      </div>
+                    )}
+                  </>
                 );
               })()}
             </>
