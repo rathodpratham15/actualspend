@@ -210,7 +210,14 @@ export function UserMenu({ onClose }: { onClose?: () => void }) {
           )}
 
           {/* Actions */}
-          <div className="px-2 py-2">
+          <div className="px-2 py-2 space-y-0.5">
+            <Link
+              href="/profile"
+              onClick={close}
+              className="block w-full text-left px-3 py-2 text-sm text-secondary hover:text-foreground hover:bg-surface rounded-lg transition-colors"
+            >
+              Profile
+            </Link>
             <button
               type="button"
               data-testid="sign-out-btn"
