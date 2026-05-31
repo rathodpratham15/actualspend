@@ -125,6 +125,7 @@ export default async function DashboardPage({
     ]);
 
   // Show onboarding banner when profile is incomplete and user has transactions.
+  // Show banner only when onboarding was never completed AND there's real data to improve.
   const showBanner = !profile?.onboardingCompletedAt && metrics.bankSpent > 0;
   const detectedRent = showBanner ? await detectLikelyRent(user.id) : null;
 

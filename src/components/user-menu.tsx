@@ -6,10 +6,6 @@ import Link from "next/link";
 import Image from "next/image";
 
 type Profile = {
-  monthlyRent: string | null;
-  rentPaidBy: string | null;
-  rentPaymentMethod: string | null;
-  groceryChannels: string[] | null;
   onboardingCompletedAt: string | null;
 } | null;
 
@@ -98,9 +94,7 @@ export function UserMenu({ onClose }: { onClose?: () => void }) {
   const user = session?.user;
   if (!user) return null;
 
-  const hasRent = !!profile?.monthlyRent;
-  const hasGroceries = (profile?.groceryChannels?.length ?? 0) > 0;
-  const skippedAny = profile !== undefined && (!hasRent || !hasGroceries);
+  const onboardingDone = !!profile?.onboardingCompletedAt;
 
   const toggle = () => setOpen((v) => !v);
   const close = () => {
@@ -121,8 +115,8 @@ export function UserMenu({ onClose }: { onClose?: () => void }) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-10 w-72 bg-background border border-border rounded-xl shadow-lg z-50 overflow-hidden">
-          {/* User identity */}
+        <div className="absolute right-0 top-10 w-64 bg-background border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+          {/* Identity */}
           <div className="px-4 py-3 flex items-center gap-3 border-b border-border">
             <Avatar name={user.name} email={user.email} image={user.image} size={36} />
             <div className="min-w-0">
@@ -133,90 +127,19 @@ export function UserMenu({ onClose }: { onClose?: () => void }) {
             </div>
           </div>
 
-          {/* Household details (from profile) */}
-          {profile && (hasRent || hasGroceries) && (
-            <div className="px-4 py-3 border-b border-border space-y-1.5">
-              <div className="text-[10px] uppercase tracking-widest text-secondary mb-2">
-                Household
-              </div>
-              {hasRent && (
-                <div className="flex justify-between text-xs">
-                  <span className="text-secondary">Monthly rent</span>
-                  <span className="font-mono">
-                    ${Number(profile.monthlyRent).toLocaleString()}
-                    {profile.rentPaidBy && (
-                      <span className="text-secondary ml-1">
-                        · {RENT_PAID_BY_LABELS[profile.rentPaidBy] ?? profile.rentPaidBy}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              )}
-              {hasRent && profile.rentPaymentMethod && (
-                <div className="flex justify-between text-xs">
-                  <span className="text-secondary">Paid via</span>
-                  <span>{PAYMENT_LABELS[profile.rentPaymentMethod] ?? profile.rentPaymentMethod}</span>
-                </div>
-              )}
-              {hasGroceries && (
-                <div className="flex justify-between text-xs gap-4">
-                  <span className="text-secondary shrink-0">Grocery stores</span>
-                  <span className="text-right capitalize">
-                    {profile.groceryChannels!
-                      .slice(0, 3)
-                      .map((c) => c.replace(/_/g, " "))
-                      .join(", ")}
-                    {(profile.groceryChannels!.length ?? 0) > 3 &&
-                      ` +${profile.groceryChannels!.length - 3}`}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Incomplete onboarding steps */}
-          {skippedAny && (
-            <div className="px-4 py-3 border-b border-border">
-              <div className="text-[10px] uppercase tracking-widest text-secondary mb-2">
-                Setup incomplete
-              </div>
-              <div className="space-y-1.5">
-                {!hasRent && (
-                  <Link
-                    href="/onboarding"
-                    onClick={close}
-                    className="flex items-center gap-2 text-xs text-secondary hover:text-foreground group"
-                  >
-                    <span className="w-4 h-4 rounded-full border border-border flex items-center justify-center shrink-0 group-hover:border-foreground">
-                      <span className="w-1.5 h-1.5 rounded-full bg-border group-hover:bg-foreground" />
-                    </span>
-                    Add rent details →
-                  </Link>
-                )}
-                {!hasGroceries && (
-                  <Link
-                    href="/onboarding"
-                    onClick={close}
-                    className="flex items-center gap-2 text-xs text-secondary hover:text-foreground group"
-                  >
-                    <span className="w-4 h-4 rounded-full border border-border flex items-center justify-center shrink-0 group-hover:border-foreground">
-                      <span className="w-1.5 h-1.5 rounded-full bg-border group-hover:bg-foreground" />
-                    </span>
-                    Add grocery preferences →
-                  </Link>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* Actions */}
           <div className="px-2 py-2 space-y-0.5">
             <Link
               href="/profile"
               onClick={close}
-              className="block w-full text-left px-3 py-2 text-sm text-secondary hover:text-foreground hover:bg-surface rounded-lg transition-colors"
+              className="flex items-center justify-between w-full px-3 py-2 text-sm text-secondary hover:text-foreground hover:bg-surface rounded-lg transition-colors"
             >
               Profile
+              {!onboardingDone && profile !== undefined && (
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-soft text-amber-accent">
+                  incomplete
+                </span>
+              )}
             </Link>
             <button
               type="button"

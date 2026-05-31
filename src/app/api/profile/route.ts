@@ -40,7 +40,13 @@ export async function PATCH(req: Request) {
 
   const updates: Record<string, unknown> = { updatedAt: new Date() };
   for (const key of allowed) {
-    if (key in body) updates[key] = body[key];
+    if (!(key in body)) continue;
+    // Drizzle timestamp columns need a Date object, not an ISO string.
+    if (key === "onboardingCompletedAt" && typeof body[key] === "string") {
+      updates[key] = new Date(body[key] as string);
+    } else {
+      updates[key] = body[key];
+    }
   }
 
   await db
