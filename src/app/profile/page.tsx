@@ -109,15 +109,7 @@ export default async function ProfilePage() {
 
         {/* Household setup */}
         <section className="mt-8">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-base font-medium">Household setup</h2>
-            <a
-              href="/onboarding"
-              className="text-xs text-secondary hover:text-foreground"
-            >
-              Edit →
-            </a>
-          </div>
+          <h2 className="text-base font-medium mb-3">Household setup</h2>
           <div className="bg-surface border border-border rounded-xl divide-y divide-border">
             {setupSteps.map((step) => (
               <div key={step.id} className="px-5 py-3.5 flex items-start gap-3">
@@ -130,17 +122,18 @@ export default async function ProfilePage() {
                     </svg>
                   )}
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium">{step.label}</div>
                   <div className={`text-xs mt-0.5 truncate ${step.done ? "text-secondary" : "text-secondary/60"}`}>
                     {step.description}
                   </div>
                 </div>
-                {!step.done && (
-                  <a href="/onboarding" className="ml-auto text-xs text-secondary hover:text-foreground shrink-0">
-                    Set up →
-                  </a>
-                )}
+                <a
+                  href={`/onboarding?step=${step.id}`}
+                  className="ml-auto text-xs text-secondary hover:text-foreground shrink-0"
+                >
+                  {step.done ? "Edit →" : "Set up →"}
+                </a>
               </div>
             ))}
           </div>

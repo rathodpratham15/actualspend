@@ -5,9 +5,16 @@ import { eq } from "drizzle-orm";
 import { OnboardingForm } from "@/components/onboarding-form";
 import { AppHeader } from "@/components/app-header";
 
-export default async function OnboardingPage() {
+export default async function OnboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (!session?.user?.id) return null;
+
+  const params = await searchParams;
+  const initialStep = (params.step as string | undefined) ?? "rent";
 
   // Fetch Splitwise friends if connected so the roommate step can show them.
   const [swCred] = await db
@@ -42,6 +49,7 @@ export default async function OnboardingPage() {
         friends={friends}
         savedRoommateIds={savedRoommateIds}
         hasSplitwise={!!swCred}
+        initialStep={initialStep}
       />
     </div>
   );

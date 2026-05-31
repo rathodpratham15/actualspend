@@ -44,6 +44,7 @@ type Props = {
   friends: Friend[];
   savedRoommateIds: number[];
   hasSplitwise: boolean;
+  initialStep?: string;
 };
 
 function AmountInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
@@ -68,10 +69,11 @@ function RadioCard({ id, label, sub, current, setter }: { id: string; label: str
   );
 }
 
-export function OnboardingForm({ friends, savedRoommateIds, hasSplitwise }: Props) {
+export function OnboardingForm({ friends, savedRoommateIds, hasSplitwise, initialStep }: Props) {
   const router = useRouter();
   const steps: Step[] = hasSplitwise ? ["rent", "groceries", "roommates"] : ["rent", "groceries"];
-  const [step, setStep] = useState<Step>("rent");
+  const validInitial = steps.includes(initialStep as Step) ? (initialStep as Step) : "rent";
+  const [step, setStep] = useState<Step>(validInitial);
   const [busy, setBusy] = useState(false);
 
   const [totalRent, setTotalRent] = useState("");
