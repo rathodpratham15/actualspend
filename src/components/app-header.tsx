@@ -76,45 +76,36 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
     </>
   );
 
-  // Desktop marketing nav — Sign in is the primary CTA, inverse-colored
-  // for emphasis.
+  // Desktop marketing nav — "Sign in" ghost + "Get started" primary.
   const marketingLinksDesktop = (
     <>
-      <NavLink href="/security" testid="nav-privacy" onClick={close}>
-        Privacy
-      </NavLink>
       {!onLoginPage && (
-        <Link
-          href="/login"
-          data-testid="nav-login"
-          onClick={close}
-          className="inline-flex items-center h-9 px-4 rounded-md bg-foreground text-background text-sm hover:opacity-90 transition-opacity"
-        >
-          Sign in
-        </Link>
+        <>
+          <Link href="/login" data-testid="nav-login" onClick={close}
+            className="inline-flex items-center h-9 px-3 rounded-md text-sm text-secondary hover:text-foreground transition-colors">
+            Sign in
+          </Link>
+          <Link href="/register" data-testid="nav-register" onClick={close}
+            className="inline-flex items-center h-9 px-4 rounded-md bg-foreground text-background text-sm hover:opacity-90 transition-opacity">
+            Get started
+          </Link>
+        </>
       )}
     </>
   );
 
-  // Mobile drawer marketing nav — Sign in is rendered as a plain text link
-  // matching the other items in the drawer. The desktop nav keeps the
-  // boxed inverse CTA; in the drawer that styling reads as an "active
-  // page" indicator and misleads users into thinking they're on the
-  // Sign-in page.
   const marketingLinksMobile = (
     <>
-      <NavLink href="/security" testid="nav-privacy" onClick={close}>
-        Privacy
-      </NavLink>
       {!onLoginPage && (
-        <Link
-          href="/login"
-          data-testid="nav-login"
-          onClick={close}
-          className={`${navItem} text-foreground`}
-        >
-          Sign in
-        </Link>
+        <>
+          <Link href="/login" data-testid="nav-login" onClick={close} className={`${navItem} text-foreground`}>
+            Sign in
+          </Link>
+          <Link href="/register" data-testid="nav-register" onClick={close}
+            className="inline-flex items-center h-9 px-4 rounded-md bg-foreground text-background text-sm">
+            Get started
+          </Link>
+        </>
       )}
     </>
   );
