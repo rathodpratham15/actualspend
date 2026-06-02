@@ -2,7 +2,14 @@ import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  images: {
+    remotePatterns: [
+      // Google profile pictures from OAuth sign-in.
+      { protocol: "https", hostname: "lh3.googleusercontent.com" },
+      // Clearbit Logo API — merchant brand logos on the onboarding grocery step.
+      { protocol: "https", hostname: "logo.clearbit.com" },
+    ],
+  },
 };
 
 // Wrap with Sentry. The plugin is a no-op when SENTRY_AUTH_TOKEN isn't set —

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   BarChart,
   Bar,
@@ -76,11 +76,6 @@ function CustomTooltip({ active, payload, label }: any) {
 
 export function SpendChart({ data }: Props) {
   const [showBank, setShowBank] = useState(false);
-  // Delay rendering until after mount — ResponsiveContainer measures its DOM
-  // container and returns width/height -1 during SSR, which causes Recharts
-  // to log errors and render nothing.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
   if (data.length === 0) return null;
 
@@ -106,7 +101,7 @@ export function SpendChart({ data }: Props) {
       </div>
 
       <div className="h-52">
-        {!mounted ? <div className="h-full" /> : <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
             barGap={3}
@@ -151,7 +146,7 @@ export function SpendChart({ data }: Props) {
               ))}
             </Bar>
           </BarChart>
-        </ResponsiveContainer>}
+        </ResponsiveContainer>
       </div>
 
       <div className="mt-1 text-[11px] text-secondary text-right font-mono">
