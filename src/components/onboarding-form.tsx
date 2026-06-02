@@ -2,17 +2,18 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 const GROCERY_OPTIONS = [
-  { id: "instacart", label: "Instacart" },
-  { id: "costco", label: "Costco" },
-  { id: "aldi", label: "Aldi" },
-  { id: "trader_joes", label: "Trader Joe's" },
-  { id: "whole_foods", label: "Whole Foods" },
-  { id: "amazon_fresh", label: "Amazon Fresh" },
-  { id: "walmart", label: "Walmart" },
-  { id: "target", label: "Target" },
-  { id: "local", label: "Local grocery stores" },
+  { id: "instacart",   label: "Instacart",           domain: "instacart.com" },
+  { id: "costco",      label: "Costco",               domain: "costco.com" },
+  { id: "aldi",        label: "Aldi",                 domain: "aldi.us" },
+  { id: "trader_joes", label: "Trader Joe's",         domain: "traderjoes.com" },
+  { id: "whole_foods", label: "Whole Foods",          domain: "wholefoodsmarket.com" },
+  { id: "amazon_fresh",label: "Amazon Fresh",         domain: "amazon.com" },
+  { id: "walmart",     label: "Walmart",              domain: "walmart.com" },
+  { id: "target",      label: "Target",               domain: "target.com" },
+  { id: "local",       label: "Local grocery stores", domain: null },
 ];
 
 const PAYMENT_METHODS = [
@@ -239,12 +240,41 @@ export function OnboardingForm({ friends, savedRoommateIds, hasSplitwise, initia
           <h1 className="text-xl font-medium tracking-tight">Where do you shop for groceries?</h1>
           <p className="mt-1 text-sm text-secondary">We&apos;ll use this to break down spending by store even when you order through Instacart.</p>
           <div className="mt-8 grid grid-cols-2 gap-2">
-            {GROCERY_OPTIONS.map((opt) => (
-              <label key={opt.id} className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border cursor-pointer text-sm transition-colors ${groceries.has(opt.id) ? "border-foreground bg-surface" : "border-border hover:bg-surface"}`}>
-                <input type="checkbox" checked={groceries.has(opt.id)} onChange={() => setGroceries(toggle(groceries, opt.id))} className="accent-foreground" />
-                {opt.label}
-              </label>
-            ))}
+            {GROCERY_OPTIONS.map((opt) => {
+              const selected = groceries.has(opt.id);
+              return (
+                <label
+                  key={opt.id}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer text-sm transition-colors ${
+                    selected ? "border-foreground bg-surface" : "border-border hover:bg-surface"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => setGroceries(toggle(groceries, opt.id))}
+                    className="accent-foreground shrink-0"
+                  />
+                  {opt.domain ? (
+                    <Image
+                      src={`https://logo.clearbit.com/${opt.domain}`}
+                      alt=""
+                      width={20}
+                      height={20}
+                      className="rounded shrink-0 object-contain"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      unoptimized
+                    />
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-secondary shrink-0">
+                      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                      <polyline points="9 22 9 12 15 12 15 22"/>
+                    </svg>
+                  )}
+                  <span className="truncate">{opt.label}</span>
+                </label>
+              );
+            })}
           </div>
           <div className="mt-8 flex items-center justify-between">
             <button type="button" onClick={() => submitGroceries(true)} className="text-sm text-secondary hover:text-foreground">Skip</button>

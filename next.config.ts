@@ -5,10 +5,9 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
       // Google profile pictures from OAuth sign-in.
-      {
-        protocol: "https",
-        hostname: "lh3.googleusercontent.com",
-      },
+      { protocol: "https", hostname: "lh3.googleusercontent.com" },
+      // Clearbit Logo API — merchant brand logos on the onboarding grocery step.
+      { protocol: "https", hostname: "logo.clearbit.com" },
     ],
   },
 };
