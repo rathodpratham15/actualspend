@@ -33,6 +33,9 @@
   --color-emerald-soft: var(--emerald-soft);
   --color-amber-accent: var(--amber);
   --color-amber-soft: var(--amber-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-destructive-soft: var(--destructive-soft);
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
@@ -67,12 +70,15 @@
   --accent-foreground: hsl(0 0% 7%);
   --destructive: hsl(0 60% 45%);
   --destructive-foreground: hsl(0 0% 98%);
+  --destructive-soft: hsl(0 60% 96%);
 
   /* Restrained accents */
   --emerald: hsl(162 33% 27%);        /* #2F5D50 */
   --emerald-soft: hsl(156 18% 88%);   /* #DCE7E2 */
   --amber: hsl(36 70% 50%);
   --amber-soft: hsl(36 80% 92%);
+  --success: hsl(162 33% 27%);
+  --success-soft: hsl(156 18% 88%);
 
   --radius: 0.5rem;
 }
@@ -99,11 +105,14 @@
   --accent-foreground: hsl(60 8% 95%);
   --destructive: hsl(0 50% 40%);
   --destructive-foreground: hsl(60 8% 95%);
+  --destructive-soft: hsl(0 35% 18%);
 
   --emerald: hsl(156 18% 46%);
   --emerald-soft: hsl(162 22% 16%);
   --amber: hsl(36 60% 60%);
   --amber-soft: hsl(36 25% 18%);
+  --success: hsl(156 18% 46%);
+  --success-soft: hsl(162 22% 16%);
 }
 
 @layer base {
@@ -203,5 +212,42 @@
     height: 1px;
     background: var(--border);
     width: 100%;
+  }
+}
+
+@layer components {
+  /* Card surface — consistent card style used across the new UI. */
+  .surface-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+
+  /* Inline status pills */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1;
+  }
+  .pill-teal  { background: var(--emerald-soft); color: var(--emerald); }
+  .pill-green { background: var(--success-soft);  color: var(--success); }
+  .pill-amber { background: var(--amber-soft);    color: var(--amber); }
+  .pill-red   { background: var(--destructive-soft); color: var(--destructive); }
+  .pill-muted { background: var(--muted);  color: var(--muted-foreground); }
+
+  /* Tiny status dot */
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    display: inline-block;
+    flex-shrink: 0;
   }
 }

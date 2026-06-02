@@ -168,22 +168,41 @@ export default async function DashboardPage({
           periodLabel={periodLabel(period)}
         />
 
-        <Link
-          href="/reconcile"
-          data-testid="recon-strip"
-          className="mt-4 block bg-surface border border-border rounded-xl px-5 py-3 text-sm hover:bg-secondary/40 transition-colors"
-        >
-          <span className="font-mono">{counts.matched}</span> matched ·{" "}
-          <span
-            className={`font-mono ${counts.awaiting > 0 ? "text-amber-accent" : ""}`}
-          >
-            {counts.awaiting}
-          </span>{" "}
-          awaiting your review ·{" "}
-          <span className="font-mono">{counts.splitwiseOnly}</span>{" "}
-          Splitwise-only ·{" "}
-          <span className="font-mono">{counts.personal}</span> personal
-        </Link>
+        {/* Reconciliation status panel */}
+        <div className="mt-4 surface-card p-4" data-testid="recon-strip">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-sm font-medium">Reconciliation</div>
+            <Link href="/reconcile" className="text-xs text-emerald-accent hover:underline underline-offset-4">
+              Review →
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="flex items-center justify-between px-3 py-2 rounded-md bg-success-soft">
+              <span className="flex items-center gap-1.5 text-xs text-success">
+                <span className="dot bg-success" /> Matched
+              </span>
+              <span className="font-mono text-xs text-success" data-testid="count-matched">{counts.matched}</span>
+            </div>
+            <div className="flex items-center justify-between px-3 py-2 rounded-md bg-amber-soft">
+              <span className="flex items-center gap-1.5 text-xs text-amber-accent">
+                <span className="dot bg-amber-accent" /> Awaiting
+              </span>
+              <span className="font-mono text-xs text-amber-accent" data-testid="count-awaiting">{counts.awaiting}</span>
+            </div>
+            <div className="flex items-center justify-between px-3 py-2 rounded-md bg-surface border border-border">
+              <span className="flex items-center gap-1.5 text-xs text-secondary">
+                <span className="dot bg-border" /> SW-only
+              </span>
+              <span className="font-mono text-xs text-secondary">{counts.splitwiseOnly}</span>
+            </div>
+            <div className="flex items-center justify-between px-3 py-2 rounded-md bg-surface border border-border">
+              <span className="flex items-center gap-1.5 text-xs text-secondary">
+                <span className="dot bg-foreground/30" /> Personal
+              </span>
+              <span className="font-mono text-xs text-secondary">{counts.personal}</span>
+            </div>
+          </div>
+        </div>
 
         {showBanner && <OnboardingBanner detectedRent={detectedRent} />}
 

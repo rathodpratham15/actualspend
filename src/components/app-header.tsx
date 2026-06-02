@@ -61,6 +61,9 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
       <NavLink href="/merchants" testid="nav-merchants" onClick={close}>
         Merchants
       </NavLink>
+      <NavLink href="/friends" testid="nav-friends" onClick={close}>
+        Friends
+      </NavLink>
     </>
   );
 
