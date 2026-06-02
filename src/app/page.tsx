@@ -28,8 +28,9 @@ import { DashboardHero } from "@/components/dashboard-hero";
 import { SpendChartWrapper } from "@/components/spend-chart-wrapper";
 import { OnboardingBanner } from "@/components/onboarding-banner";
 import { RoommateModal } from "@/components/roommate-modal";
+import { TimeRangePicker } from "@/components/time-range-picker";
 import { Suspense } from "react";
-import { Home, ShoppingBasket, Zap, UtensilsCrossed, Bus, Package, ShoppingBag, Plane, Heart, BookOpen } from "lucide-react";
+import { Home, ShoppingBasket, Zap, UtensilsCrossed, Bus, Package, ShoppingBag, Plane, Heart, BookOpen, Check, Clock, X } from "lucide-react";
 
 const CATEGORY_LABEL: Record<string, string> = {
   GROCERIES: "Groceries",
@@ -154,14 +155,15 @@ export default async function DashboardPage({
       )}
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-24">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
-          <div
-            className="text-sm text-secondary font-mono truncate"
-            data-testid="user-email"
-          >
-            {user.email}
+        {/* Header row */}
+        <div className="flex flex-wrap items-end justify-between gap-3 mb-6 sm:mb-8">
+          <div>
+            <div className="text-xs uppercase tracking-widest text-secondary">Overview</div>
+            <h1 className="text-[26px] font-medium tracking-tight mt-1">Your spend, reconciled.</h1>
           </div>
-          <DateRangePicker from={period.from} to={period.to} />
+          <Suspense>
+            <TimeRangePicker from={period.from} to={period.to} />
+          </Suspense>
         </div>
 
         <DashboardHero
@@ -169,45 +171,46 @@ export default async function DashboardPage({
           periodLabel={periodLabel(period)}
         />
 
-        {/* Reconciliation status panel */}
-        <div className="mt-4 surface-card p-4" data-testid="recon-strip">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm font-medium">Reconciliation</div>
-            <Link href="/reconcile" className="text-xs text-emerald-accent hover:underline underline-offset-4">
-              Review →
+        {showBanner && <OnboardingBanner detectedRent={detectedRent} />}
+
+        {/* Chart + Reconciliation status — side by side on lg */}
+        <div className="mt-4 grid lg:grid-cols-[1fr_300px] gap-4">
+          <SpendChartWrapper data={timeline} />
+
+          {/* Reconciliation status panel */}
+          <div className="surface-card p-5" data-testid="recon-strip">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="text-sm font-medium">Reconciliation</div>
+                <div className="text-xs text-secondary">All-time status</div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-md bg-success-soft">
+                <span className="flex items-center gap-2 text-sm text-success">
+                  <Check className="h-3.5 w-3.5" strokeWidth={2} /> Matched
+                </span>
+                <span className="font-mono text-sm text-success" data-testid="count-matched">{counts.matched}</span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-md bg-amber-soft">
+                <span className="flex items-center gap-2 text-sm text-amber-accent">
+                  <Clock className="h-3.5 w-3.5" strokeWidth={2} /> Awaiting review
+                </span>
+                <span className="font-mono text-sm text-amber-accent" data-testid="count-awaiting">{counts.awaiting}</span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-md bg-destructive-soft">
+                <span className="flex items-center gap-2 text-sm text-destructive">
+                  <X className="h-3.5 w-3.5" strokeWidth={2} /> Unmatched
+                </span>
+                <span className="font-mono text-sm text-destructive">{counts.personal}</span>
+              </div>
+            </div>
+            <Link href="/reconcile" className="mt-4 inline-flex items-center gap-1 text-sm text-emerald-accent hover:underline underline-offset-4">
+              Review transactions <span>›</span>
             </Link>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <div className="flex items-center justify-between px-3 py-2 rounded-md bg-success-soft">
-              <span className="flex items-center gap-1.5 text-xs text-success">
-                <span className="dot bg-success" /> Matched
-              </span>
-              <span className="font-mono text-xs text-success" data-testid="count-matched">{counts.matched}</span>
-            </div>
-            <div className="flex items-center justify-between px-3 py-2 rounded-md bg-amber-soft">
-              <span className="flex items-center gap-1.5 text-xs text-amber-accent">
-                <span className="dot bg-amber-accent" /> Awaiting
-              </span>
-              <span className="font-mono text-xs text-amber-accent" data-testid="count-awaiting">{counts.awaiting}</span>
-            </div>
-            <div className="flex items-center justify-between px-3 py-2 rounded-md bg-surface border border-border">
-              <span className="flex items-center gap-1.5 text-xs text-secondary">
-                <span className="dot bg-border" /> SW-only
-              </span>
-              <span className="font-mono text-xs text-secondary">{counts.splitwiseOnly}</span>
-            </div>
-            <div className="flex items-center justify-between px-3 py-2 rounded-md bg-surface border border-border">
-              <span className="flex items-center gap-1.5 text-xs text-secondary">
-                <span className="dot bg-foreground/30" /> Personal
-              </span>
-              <span className="font-mono text-xs text-secondary">{counts.personal}</span>
-            </div>
           </div>
         </div>
 
-        {showBanner && <OnboardingBanner detectedRent={detectedRent} />}
-
-        <SpendChartWrapper data={timeline} />
         <CategorySection rows={categoryRows} />
 
         {/* Roommate modal — shown once after Splitwise OAuth (?sw=connected) */}
