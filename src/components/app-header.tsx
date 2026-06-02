@@ -8,8 +8,8 @@ import { ThemeToggle } from "./theme-toggle";
 import { UserMenu } from "./user-menu";
 
 const navItem =
-  "text-sm text-secondary hover:text-foreground transition-colors px-2 py-1 rounded";
-const navItemActive = "text-foreground";
+  "text-[14px] text-secondary hover:text-foreground transition-colors px-3 py-1.5 rounded-md";
+const navItemActive = "bg-primary-soft text-emerald-accent";
 
 type Variant = "app" | "marketing";
 
@@ -124,7 +124,7 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
       data-testid="app-header"
       className="border-b border-border bg-background/80 backdrop-blur sticky top-0 z-30"
     >
-      <div className="max-w-352 mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
         <Link
           href={variant === "app" ? "/" : "/welcome"}
           data-testid="brand-link"

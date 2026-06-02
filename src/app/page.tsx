@@ -29,6 +29,7 @@ import { SpendChartWrapper } from "@/components/spend-chart-wrapper";
 import { OnboardingBanner } from "@/components/onboarding-banner";
 import { RoommateModal } from "@/components/roommate-modal";
 import { Suspense } from "react";
+import { Home, ShoppingBasket, Zap, UtensilsCrossed, Bus, Package, ShoppingBag, Plane, Heart, BookOpen } from "lucide-react";
 
 const CATEGORY_LABEL: Record<string, string> = {
   GROCERIES: "Groceries",
@@ -152,7 +153,7 @@ export default async function DashboardPage({
         </div>
       )}
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-24">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-24">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
           <div
             className="text-sm text-secondary font-mono truncate"
@@ -232,50 +233,54 @@ function fmtTxnDate(iso: string): string {
   });
 }
 
+const CATEGORY_ICON: Record<string, React.ElementType> = {
+  RENT: Home, GROCERIES: ShoppingBasket, UTILITIES: Zap,
+  EATING_OUT: UtensilsCrossed, TRANSPORT: Bus, SHOPPING: ShoppingBag,
+  TRAVEL: Plane, HEALTH: Heart, EDUCATION: BookOpen,
+};
+
 function CategorySection({ rows }: { rows: CategoryBreakdown[] }) {
   if (rows.length === 0) return null;
   const max = rows[0]?.total ?? 0;
 
   return (
-    <section className="mt-10">
-      <div className="text-[11px] uppercase tracking-widest text-secondary mb-6">
-        Where it went
-      </div>
-      <div className="space-y-4">
+    <section className="mt-6">
+      <div className="surface-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="text-sm font-medium">Categories</div>
+            <div className="text-xs text-secondary">After reconciliation</div>
+          </div>
+        </div>
+        <div className="space-y-1">
         {rows.map((r) => {
-          const label = r.category
-            ? (CATEGORY_LABEL[r.category] ?? r.category)
-            : "Uncategorized";
+          const label = r.category ? (CATEGORY_LABEL[r.category] ?? r.category) : "Uncategorized";
           const pct = max > 0 ? (r.total / max) * 100 : 0;
+          const Icon = (r.category && CATEGORY_ICON[r.category]) ? CATEGORY_ICON[r.category] : Package;
           return (
             <details
               key={r.category ?? "null"}
               data-testid={`cat-${(r.category ?? "uncategorized").toLowerCase()}`}
               className="group"
             >
-              <summary className="cursor-pointer list-none">
-                <div className="flex items-baseline justify-between text-[15px]">
-                  <span className="flex items-baseline gap-2">
-                    <span className="text-secondary text-xs transition-transform group-open:rotate-90 inline-block">
-                      ›
-                    </span>
-                    <span>{label}</span>
-                    <span className="text-xs text-secondary font-mono">
-                      {r.count} txn{r.count === 1 ? "" : "s"}
-                    </span>
+              <summary className="cursor-pointer list-none py-2">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-muted text-foreground shrink-0">
+                    <Icon className="h-4 w-4" strokeWidth={1.5} />
                   </span>
-                  <span className="font-mono">
-                    $
-                    {r.total.toLocaleString("en-US", {
-                      maximumFractionDigits: 0,
-                    })}
-                  </span>
-                </div>
-                <div className="mt-2 h-px bg-border w-full relative">
-                  <div
-                    className="absolute left-0 top-0 h-px bg-foreground transition-all"
-                    style={{ width: `${pct.toFixed(1)}%` }}
-                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between text-sm">
+                      <span className="flex items-baseline gap-2">
+                        <span>{label}</span>
+                        <span className="text-xs text-secondary font-mono">{r.count} txn{r.count === 1 ? "" : "s"}</span>
+                      </span>
+                      <span className="font-mono text-sm">${r.total.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
+                    </div>
+                    <div className="mt-1.5 h-1 bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-accent/60 rounded-full" style={{ width: `${pct.toFixed(1)}%` }} />
+                    </div>
+                  </div>
+                  <span className="text-secondary text-xs transition-transform group-open:rotate-90 inline-block shrink-0">›</span>
                 </div>
               </summary>
               <ul className="mt-3 pl-5 space-y-1.5 text-sm">
@@ -348,6 +353,7 @@ function CategorySection({ rows }: { rows: CategoryBreakdown[] }) {
             </details>
           );
         })}
+        </div>
       </div>
     </section>
   );

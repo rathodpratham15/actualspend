@@ -145,6 +145,9 @@
   .text-secondary {
     color: var(--muted-foreground);
   }
+  /* Alias used by active nav items — maps to our emerald palette */
+  .bg-primary-soft { background-color: var(--emerald-soft); }
+  .text-primary-color { color: var(--emerald); }
   .bg-surface {
     background-color: var(--surface);
   }
