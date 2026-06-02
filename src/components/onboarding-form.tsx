@@ -40,11 +40,21 @@ type Friend = {
 
 type Step = "rent" | "groceries" | "roommates";
 
+type InitialProfile = {
+  totalMonthlyRent: string;
+  ownRentShare: string;
+  rentPaymentMethod: string;
+  roommatePaybackMethods: string[];
+  roommatePaybackPattern: string;
+  groceryChannels: string[];
+} | null;
+
 type Props = {
   friends: Friend[];
   savedRoommateIds: number[];
   hasSplitwise: boolean;
   initialStep?: string;
+  initialProfile?: InitialProfile;
 };
 
 function AmountInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
@@ -69,19 +79,21 @@ function RadioCard({ id, label, sub, current, setter }: { id: string; label: str
   );
 }
 
-export function OnboardingForm({ friends, savedRoommateIds, hasSplitwise, initialStep }: Props) {
+export function OnboardingForm({ friends, savedRoommateIds, hasSplitwise, initialStep, initialProfile }: Props) {
   const router = useRouter();
   const steps: Step[] = hasSplitwise ? ["rent", "groceries", "roommates"] : ["rent", "groceries"];
   const validInitial = steps.includes(initialStep as Step) ? (initialStep as Step) : "rent";
   const [step, setStep] = useState<Step>(validInitial);
   const [busy, setBusy] = useState(false);
 
-  const [totalRent, setTotalRent] = useState("");
-  const [ownShare, setOwnShare] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("");
-  const [paybackMethods, setPaybackMethods] = useState<Set<string>>(new Set());
-  const [paybackPattern, setPaybackPattern] = useState("");
-  const [groceries, setGroceries] = useState<Set<string>>(new Set());
+  // Seed from saved profile so editing shows current values.
+  const ip = initialProfile;
+  const [totalRent, setTotalRent] = useState(ip?.totalMonthlyRent ?? "");
+  const [ownShare, setOwnShare] = useState(ip?.ownRentShare ?? "");
+  const [paymentMethod, setPaymentMethod] = useState(ip?.rentPaymentMethod ?? "");
+  const [paybackMethods, setPaybackMethods] = useState<Set<string>>(new Set(ip?.roommatePaybackMethods ?? []));
+  const [paybackPattern, setPaybackPattern] = useState(ip?.roommatePaybackPattern ?? "");
+  const [groceries, setGroceries] = useState<Set<string>>(new Set(ip?.groceryChannels ?? []));
   const [roommates, setRoommates] = useState<Set<number>>(new Set(savedRoommateIds));
   const [roommateSearch, setRoommateSearch] = useState("");
   const [roommatePage, setRoommatePage] = useState(1);

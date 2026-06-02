@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { splitwiseFriends, splitwiseCredentials, userRoommates } from "@/lib/db/schema";
+import { splitwiseFriends, splitwiseCredentials, userRoommates, userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { OnboardingForm } from "@/components/onboarding-form";
 import { AppHeader } from "@/components/app-header";
@@ -15,6 +15,12 @@ export default async function OnboardingPage({
 
   const params = await searchParams;
   const initialStep = (params.step as string | undefined) ?? "rent";
+
+  // Existing profile — used to pre-fill form fields when editing.
+  const [profile] = await db
+    .select()
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, session.user.id));
 
   // Fetch Splitwise friends if connected so the roommate step can show them.
   const [swCred] = await db
@@ -50,6 +56,14 @@ export default async function OnboardingPage({
         savedRoommateIds={savedRoommateIds}
         hasSplitwise={!!swCred}
         initialStep={initialStep}
+        initialProfile={profile ? {
+          totalMonthlyRent: profile.totalMonthlyRent ?? "",
+          ownRentShare: profile.ownRentShare ?? "",
+          rentPaymentMethod: profile.rentPaymentMethod ?? "",
+          roommatePaybackMethods: profile.roommatePaybackMethods ?? [],
+          roommatePaybackPattern: profile.roommatePaybackPattern ?? "",
+          groceryChannels: profile.groceryChannels ?? [],
+        } : null}
       />
     </div>
   );
