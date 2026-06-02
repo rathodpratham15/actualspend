@@ -22,13 +22,20 @@ import { parsePeriod, formatPeriod, type Period } from "@/lib/dashboard/period";
 import { computeSpendTimeline } from "@/lib/dashboard/spend-timeline";
 import { detectLikelyRent } from "@/lib/dashboard/detect-rent";
 
+import dynamic from "next/dynamic";
 import { AppHeader } from "@/components/app-header";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { DashboardHero } from "@/components/dashboard-hero";
-import { SpendChart } from "@/components/spend-chart";
 import { OnboardingBanner } from "@/components/onboarding-banner";
 import { RoommateModal } from "@/components/roommate-modal";
 import { Suspense } from "react";
+
+// Recharts measures DOM dimensions — must be client-only to avoid the
+// "width(-1) height(-1)" warning that fires when it runs during SSR/hydration.
+const SpendChart = dynamic(
+  () => import("@/components/spend-chart").then((m) => ({ default: m.SpendChart })),
+  { ssr: false },
+);
 
 const CATEGORY_LABEL: Record<string, string> = {
   GROCERIES: "Groceries",
