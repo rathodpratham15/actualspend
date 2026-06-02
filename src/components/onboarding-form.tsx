@@ -5,15 +5,15 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 
 const GROCERY_OPTIONS = [
-  { id: "instacart",   label: "Instacart",           domain: "instacart.com" },
-  { id: "costco",      label: "Costco",               domain: "costco.com" },
-  { id: "aldi",        label: "Aldi",                 domain: "aldi.us" },
-  { id: "trader_joes", label: "Trader Joe's",         domain: "traderjoes.com" },
-  { id: "whole_foods", label: "Whole Foods",          domain: "wholefoodsmarket.com" },
-  { id: "amazon_fresh",label: "Amazon Fresh",         domain: "amazon.com" },
-  { id: "walmart",     label: "Walmart",              domain: "walmart.com" },
-  { id: "target",      label: "Target",               domain: "target.com" },
-  { id: "local",       label: "Local grocery stores", domain: null },
+  { id: "instacart",    label: "Instacart",           logo: "/Instacart_Carrot.png" },
+  { id: "costco",       label: "Costco",              logo: "/costco.webp" },
+  { id: "aldi",         label: "Aldi",                logo: "/aldi.jpeg" },
+  { id: "trader_joes",  label: "Trader Joe's",        logo: "/traders.png" },
+  { id: "whole_foods",  label: "Whole Foods",         logo: "/whole-foods.png" },
+  { id: "amazon_fresh", label: "Amazon Fresh",        logo: "https://logo.clearbit.com/amazon.com" },
+  { id: "walmart",      label: "Walmart",             logo: "/walmart.svg" },
+  { id: "target",       label: "Target",              logo: "/target.jpg" },
+  { id: "local",        label: "Local grocery stores",logo: null },
 ];
 
 const PAYMENT_METHODS = [
@@ -255,9 +255,9 @@ export function OnboardingForm({ friends, savedRoommateIds, hasSplitwise, initia
                     onChange={() => setGroceries(toggle(groceries, opt.id))}
                     className="accent-foreground shrink-0"
                   />
-                  {opt.domain ? (
+                  {opt.logo ? (
                     <Image
-                      src={`https://logo.clearbit.com/${opt.domain}`}
+                      src={opt.logo}
                       alt=""
                       width={20}
                       height={20}
