@@ -7,7 +7,18 @@ import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { AppHeader } from "@/components/app-header";
 import { MonthPicker } from "@/components/month-picker";
 import { PaginationControls } from "@/components/pagination-controls";
-import { usd, dateShort } from "@/lib/format";
+import { usd } from "@/lib/format";
+
+const CAT_LABELS: Record<string, string> = {
+  GROCERIES: "Groceries", RENT: "Rent", UTILITIES: "Utilities",
+  TRANSPORT: "Transport", EATING_OUT: "Dining", SUBSCRIPTION: "Subscriptions",
+  SHOPPING: "Shopping", TRAVEL: "Travel", HEALTH: "Health",
+  ENTERTAINMENT: "Entertainment", EDUCATION: "Education", OTHER: "Other",
+};
+const CAT_PILL: Record<string, string> = {
+  GROCERIES: "pill-teal", RENT: "pill-teal", EATING_OUT: "pill-amber",
+  TRANSPORT: "pill-muted", UTILITIES: "pill-muted", SUBSCRIPTION: "pill-muted",
+};
 
 const PAGE_SIZE = 10;
 
@@ -54,6 +65,7 @@ function monthDateRange(yearMonth: string) {
 type MerchantRow = {
   merchant: string;
   channel: string | null;
+  category: string | null;
   totalActual: number;
   txnCount: number;
   lastSeen: string;
@@ -113,6 +125,7 @@ async function fetchMerchants(
     .select({
       merchant: sql<string>`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
       channel: transactions.channel,
+      category: sql<string>`MODE() WITHIN GROUP (ORDER BY ${transactions.canonicalCategory})`,
       totalActual: sql<number>`SUM(${reconciliations.actualAmount}::numeric)`,
       txnCount: sql<number>`COUNT(DISTINCT ${reconciliations.id})::int`,
       lastSeen: sql<string>`MAX(${transactions.date})`,
@@ -132,6 +145,7 @@ async function fetchMerchants(
     rows: rows.map((r) => ({
       merchant: r.merchant,
       channel: r.channel,
+      category: r.category ?? null,
       totalActual: Number(r.totalActual ?? 0),
       txnCount: Number(r.txnCount ?? 0),
       lastSeen: r.lastSeen ?? "",
@@ -203,22 +217,21 @@ export default async function MerchantsPage({
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10 pb-24">
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-xl tracking-tight font-medium">Merchants</h1>
-            <p className="mt-0.5 text-sm text-secondary">
-              Ranked by actual spend — your share only.
-            </p>
+            <div className="text-[11px] uppercase tracking-widest text-secondary">Merchants</div>
+            <h1 className="text-[22px] font-medium tracking-tight mt-1">Monthly spend by merchant</h1>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="surface-card px-1 py-1 rounded-md">
+              <Suspense><MonthPicker yearMonth={yearMonth} /></Suspense>
+            </div>
             {grandTotal > 0 && (
-              <span className="text-sm font-mono text-secondary">
-                {usd(grandTotal, { decimals: 0 })} total
-              </span>
+              <div className="text-right">
+                <div className="text-[11px] uppercase tracking-widest text-secondary">Total</div>
+                <div className="font-mono text-[18px]">{usd(grandTotal, { decimals: 0 })}</div>
+              </div>
             )}
-            <Suspense>
-              <MonthPicker yearMonth={yearMonth} />
-            </Suspense>
           </div>
         </div>
 
@@ -257,7 +270,6 @@ export default async function MerchantsPage({
 
 function MerchantTable({
   rows,
-  globalMax,
   page,
   totalPages,
   total,
@@ -268,77 +280,53 @@ function MerchantTable({
   totalPages: number;
   total: number;
 }) {
-  const offset = (page - 1) * PAGE_SIZE;
-
   return (
-    <div className="bg-surface border border-border rounded-xl overflow-hidden">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border">
-            <th className="px-4 py-2.5 text-left text-[11px] uppercase tracking-widest text-secondary font-normal w-8">
-              #
-            </th>
-            <th className="px-3 py-2.5 text-left text-[11px] uppercase tracking-widest text-secondary font-normal">
-              Merchant
-            </th>
-            <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-widest text-secondary font-normal hidden sm:table-cell">
-              Txns
-            </th>
-            <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-widest text-secondary font-normal hidden sm:table-cell">
-              Last
-            </th>
-            <th className="px-4 py-2.5 text-right text-[11px] uppercase tracking-widest text-secondary font-normal">
-              Actual
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {rows.map((r, i) => {
-            const barPct = globalMax > 0 ? (r.totalActual / globalMax) * 100 : 0;
-            return (
-              <tr key={`${r.merchant}-${i}`} className="hover:bg-background/50 transition-colors">
-                <td className="px-4 py-3 font-mono text-xs text-secondary text-right align-top pt-4">
-                  {offset + i + 1}
-                </td>
-                <td className="px-3 py-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="truncate">{r.merchant}</span>
-                    {r.channel && (
-                      <span className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded bg-border/60 text-secondary hidden sm:inline">
-                        {r.channel}
-                      </span>
-                    )}
-                  </div>
-                  {/* Relative spend bar */}
-                  <div className="mt-1.5 h-1 bg-border rounded-full overflow-hidden w-full">
-                    <div
-                      className="h-full bg-foreground/40 rounded-full"
-                      style={{ width: `${barPct.toFixed(1)}%` }}
-                    />
-                  </div>
-                </td>
-                <td className="px-3 py-3 text-right font-mono text-xs text-secondary hidden sm:table-cell">
-                  {r.txnCount}
-                </td>
-                <td className="px-3 py-3 text-right font-mono text-xs text-secondary hidden sm:table-cell">
-                  {r.lastSeen ? dateShort(r.lastSeen) : "—"}
-                </td>
-                <td className="px-4 py-3 text-right font-mono text-sm">
-                  {usd(r.totalActual, { decimals: 0 })}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <Suspense>
-        <PaginationControls
-          page={page}
-          totalPages={totalPages}
-          totalRows={total}
-          pageSize={PAGE_SIZE}
-        />
-      </Suspense>
+    <div className="surface-card overflow-hidden">
+      {/* Header row */}
+      <div className="hidden sm:grid grid-cols-[1fr,auto,auto,auto] gap-4 px-5 py-3 text-[11px] uppercase tracking-widest text-secondary border-b border-border bg-background/50">
+        <div>Merchant</div>
+        <div>Category</div>
+        <div className="text-right w-16">Txns</div>
+        <div className="text-right w-28">Total</div>
+      </div>
+
+      <div className="divide-y divide-border">
+        {rows.map((r, i) => {
+          const catLabel = r.category ? (CAT_LABELS[r.category] ?? r.category) : "Other";
+          const catPill = r.category ? (CAT_PILL[r.category] ?? "pill-muted") : "pill-muted";
+          return (
+            <div
+              key={`${r.merchant}-${i}`}
+              className="grid grid-cols-[1fr,auto] sm:grid-cols-[1fr,auto,auto,auto] gap-4 px-5 py-3.5 items-center hover:bg-muted/30 transition-colors"
+            >
+              {/* Merchant + avatar */}
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-muted text-xs font-mono text-secondary shrink-0">
+                  {r.merchant.slice(0, 1).toUpperCase()}
+                </span>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate">{r.merchant}</div>
+                  <div className="text-[11px] text-secondary sm:hidden">{r.txnCount} txns</div>
+                </div>
+              </div>
+              {/* Category pill */}
+              <span className={`pill ${catPill} hidden sm:inline-flex`}>{catLabel}</span>
+              {/* Txn count */}
+              <div className="hidden sm:block text-right font-mono text-xs text-secondary w-16">{r.txnCount}</div>
+              {/* Total */}
+              <div className="text-right font-mono text-sm w-28">{usd(r.totalActual, { decimals: 0 })}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between px-5 py-3 border-t border-border text-xs text-secondary">
+        <div>Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}</div>
+        <Suspense>
+          <PaginationControls page={page} totalPages={totalPages} totalRows={total} pageSize={PAGE_SIZE} />
+        </Suspense>
+      </div>
     </div>
   );
 }

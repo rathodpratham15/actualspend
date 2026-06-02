@@ -52,14 +52,14 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
       <NavLink href="/" exact testid="nav-dashboard" onClick={close}>
         Dashboard
       </NavLink>
-      <NavLink href="/accounts" testid="nav-accounts" onClick={close}>
-        Accounts
-      </NavLink>
-      <NavLink href="/reconcile" testid="nav-review" onClick={close}>
-        Review
+      <NavLink href="/reconcile" testid="nav-reconcile" onClick={close}>
+        Reconcile
       </NavLink>
       <NavLink href="/merchants" testid="nav-merchants" onClick={close}>
         Merchants
+      </NavLink>
+      <NavLink href="/accounts" testid="nav-accounts" onClick={close}>
+        Accounts
       </NavLink>
       <NavLink href="/friends" testid="nav-friends" onClick={close}>
         Friends

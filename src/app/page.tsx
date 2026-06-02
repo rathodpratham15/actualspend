@@ -31,6 +31,7 @@ import { RoommateModal } from "@/components/roommate-modal";
 import { TimeRangePicker } from "@/components/time-range-picker";
 import { Suspense } from "react";
 import { Home, ShoppingBasket, Zap, UtensilsCrossed, Bus, Package, ShoppingBag, Plane, Heart, BookOpen, Check, Clock, X } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 const CATEGORY_LABEL: Record<string, string> = {
   GROCERIES: "Groceries",
@@ -246,118 +247,77 @@ function CategorySection({ rows }: { rows: CategoryBreakdown[] }) {
   if (rows.length === 0) return null;
   const max = rows[0]?.total ?? 0;
 
+  const totalAll = rows.reduce((s, r) => s + r.total, 0);
+
   return (
-    <section className="mt-6">
-      <div className="surface-card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <div className="text-sm font-medium">Categories</div>
-            <div className="text-xs text-secondary">After reconciliation</div>
-          </div>
+    <section className="mt-4 surface-card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <div className="text-sm font-medium">Categories</div>
+          <div className="text-xs text-secondary">After reconciliation</div>
         </div>
-        <div className="space-y-1">
+        <Link href="/merchants" className="text-xs text-emerald-accent hover:underline underline-offset-4">
+          View merchants
+        </Link>
+      </div>
+
+      <Accordion type="single" collapsible className="w-full">
         {rows.map((r) => {
           const label = r.category ? (CATEGORY_LABEL[r.category] ?? r.category) : "Uncategorized";
-          const pct = max > 0 ? (r.total / max) * 100 : 0;
+          const pct = totalAll > 0 ? Math.round((r.total / totalAll) * 100) : 0;
           const Icon = (r.category && CATEGORY_ICON[r.category]) ? CATEGORY_ICON[r.category] : Package;
           return (
-            <details
-              key={r.category ?? "null"}
-              data-testid={`cat-${(r.category ?? "uncategorized").toLowerCase()}`}
-              className="group"
-            >
-              <summary className="cursor-pointer list-none py-2">
-                <div className="flex items-center gap-3">
+            <AccordionItem key={r.category ?? "null"} value={r.category ?? "null"}
+              className="border-border" data-testid={`cat-${(r.category ?? "uncategorized").toLowerCase()}`}>
+              <AccordionTrigger className="hover:no-underline py-3 group">
+                <div className="flex items-center gap-4 w-full pr-4">
                   <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-muted text-foreground shrink-0">
                     <Icon className="h-4 w-4" strokeWidth={1.5} />
                   </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline justify-between text-sm">
-                      <span className="flex items-baseline gap-2">
-                        <span>{label}</span>
-                        <span className="text-xs text-secondary font-mono">{r.count} txn{r.count === 1 ? "" : "s"}</span>
-                      </span>
-                      <span className="font-mono text-sm">${r.total.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
-                    </div>
+                  <div className="flex-1 text-left min-w-0">
+                    <div className="text-sm font-medium">{label}</div>
                     <div className="mt-1.5 h-1 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full bg-emerald-accent/60 rounded-full" style={{ width: `${pct.toFixed(1)}%` }} />
+                      <div className="h-full bg-emerald-accent/70 rounded-full" style={{ width: `${pct}%` }} />
                     </div>
                   </div>
-                  <span className="text-secondary text-xs transition-transform group-open:rotate-90 inline-block shrink-0">›</span>
+                  <div className="text-right tabular shrink-0">
+                    <div className="font-mono text-sm">${r.total.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+                    <div className="text-[11px] text-secondary">{pct}%</div>
+                  </div>
                 </div>
-              </summary>
-              <ul className="mt-3 pl-5 space-y-1.5 text-sm">
-                {r.txns.map((t) => {
-                  const bankLabel = t.merchantName || t.name;
-                  // When a Splitwise match named the actual store (e.g.
-                  // "Apne Bazaar" for "IC* INSTACART"), show that as the
-                  // primary label and keep the raw bank text as a smaller
-                  // subtitle so the user can still recognize the charge.
-                  const primary = t.swDescription || bankLabel;
-                  const subtitle =
-                    t.swDescription && t.swDescription !== bankLabel
-                      ? bankLabel
-                      : null;
-                  // Show the reconciled share when it's actually smaller
-                  // than the bank charge (i.e. roommates owe back some of
-                  // this). Bank charge becomes a faded strikethrough so the
-                  // user can tie it back to their statement.
-                  const shared =
-                    t.actualAmount > 0 &&
-                    t.actualAmount < t.amount - 0.005;
-                  return (
-                    <li
-                      key={t.id}
-                      className="flex items-baseline justify-between gap-2"
-                    >
-                      <span className="flex items-baseline gap-2 min-w-0">
-                        <span className="text-xs text-secondary font-mono shrink-0">
-                          {fmtTxnDate(t.date)}
-                        </span>
-                        <span className="truncate">
-                          {primary}
-                          {subtitle && (
-                            <span className="ml-2 text-xs text-secondary">
-                              ({subtitle})
-                            </span>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="pl-12 pr-2 space-y-2 pb-2">
+                  {r.txns.slice(0, 8).map((t) => {
+                    const bankLabel = t.merchantName || t.name;
+                    const primary = t.swDescription || bankLabel;
+                    const shared = t.actualAmount > 0 && t.actualAmount < t.amount - 0.005;
+                    return (
+                      <div key={t.id} className="flex items-center justify-between text-sm py-1.5 border-b border-border/60 last:border-0">
+                        <div className="flex-1 min-w-0">
+                          <div className="truncate">{primary}</div>
+                          <div className="text-[11px] text-secondary">{fmtTxnDate(t.date)}</div>
+                        </div>
+                        <div className="text-right font-mono text-xs ml-3">
+                          ${t.actualAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {shared && (
+                            <div className="text-secondary line-through">
+                              ${t.amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
                           )}
-                        </span>
-                      </span>
-                      <span className="font-mono text-xs">
-                        {shared ? (
-                          <>
-                            $
-                            {t.actualAmount.toLocaleString("en-US", {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                            <span className="ml-1.5 text-secondary line-through">
-                              $
-                              {t.amount.toLocaleString("en-US", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            $
-                            {t.amount.toLocaleString("en-US", {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </>
-                        )}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </details>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {r.txns.length > 8 && (
+                    <div className="text-xs text-secondary pt-1">+{r.txns.length - 8} more</div>
+                  )}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
           );
         })}
-        </div>
-      </div>
+      </Accordion>
     </section>
   );
 }
