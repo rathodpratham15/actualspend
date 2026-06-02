@@ -1,56 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-
 import { AppHeader } from "@/components/app-header";
-import { SubtractionBlock } from "@/components/subtraction-block";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import { Input } from "@/components/ui/input";
-import { faqs } from "@/lib/seed";
+import { Shield, Zap, RefreshCw, Moon, ArrowRight, Check, Sparkles } from "lucide-react";
 
-function useCountUp(target: number, duration = 1100) {
+function useCountUp(target: number, duration = 900) {
   const [val, setVal] = useState(0);
-  useEffect(() => {
-    let raf: number;
+  const [started, setStarted] = useState(false);
+  if (!started && target > 0) {
+    setStarted(true);
     const start = performance.now();
     const tick = (t: number) => {
       const p = Math.min(1, (t - start) / duration);
       const eased = 1 - Math.pow(1 - p, 3);
       setVal(target * eased);
-      if (p < 1) raf = requestAnimationFrame(tick);
+      if (p < 1) requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, duration]);
+    requestAnimationFrame(tick);
+  }
   return val;
-}
-
-function HeroNumber() {
-  const v = useCountUp(2890);
-  return (
-    <span className="font-mono tabular-nums">
-      ${Math.round(v).toLocaleString()}
-    </span>
-  );
 }
 
 export default function WelcomePage() {
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const heroNum = useCountUp(1847.32);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !email.includes("@")) {
-      toast.error("Enter a valid email.");
-      return;
-    }
+    if (!email || !email.includes("@")) { toast.error("Enter a valid email."); return; }
     setSubmitting(true);
     try {
       const res = await fetch("/api/waitlist", {
@@ -58,8 +38,8 @@ export default function WelcomePage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      if (!res.ok) throw new Error("waitlist failed");
-      toast.success("You're on the list.");
+      if (!res.ok) throw new Error();
+      toast.success("You're on the list.", { description: "We'll be in touch when access opens." });
       setEmail("");
     } catch {
       toast.error("Something went wrong. Try again.");
@@ -69,328 +49,185 @@ export default function WelcomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background flex flex-col">
       <AppHeader variant="marketing" />
 
-      <section className="max-w-3xl mx-auto px-6 pt-24 pb-24">
-        <div className="text-[12px] tracking-widest uppercase text-secondary fade-up">
-          ActualSpend
+      {/* HERO */}
+      <section className="relative overflow-hidden">
+        {/* Gradient orbs */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-20 -left-24 h-[420px] w-[420px] rounded-full bg-emerald-soft blur-3xl opacity-70 dark:opacity-30" />
+          <div className="absolute -top-16 right-0 h-[320px] w-[320px] rounded-full bg-amber-soft blur-3xl opacity-50 dark:opacity-20" />
         </div>
-        <h1 className="mt-6 text-4xl sm:text-5xl lg:text-6xl tracking-tight leading-[1.05] font-medium fade-up delay-1">
-          Your bank says you spent{" "}
-          <span className="num-strike text-secondary font-mono">$4,217</span>.
-          <br />
-          You actually spent{" "}
-          <span className="font-mono text-emerald-accent">
-            <HeroNumber />
-          </span>
-          .
-        </h1>
-        <p className="mt-6 text-base sm:text-lg text-secondary max-w-2xl fade-up delay-2">
-          ActualSpend reconciles your bank transactions against Splitwise so you
-          can see what you personally spent — not what temporarily passed
-          through your account.
-        </p>
 
-        <form
-          onSubmit={submit}
-          data-testid="waitlist-form"
-          noValidate
-          className="mt-10 flex flex-col sm:flex-row gap-2 max-w-md fade-up delay-3"
-        >
-          <Input
-            data-testid="waitlist-email"
-            type="email"
-            placeholder="you@domain.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="h-10 bg-surface"
-          />
-          <button
-            type="submit"
-            disabled={submitting}
-            data-testid="waitlist-submit"
-            className="h-10 px-5 rounded-md bg-foreground text-background text-sm whitespace-nowrap shrink-0 hover:opacity-90 transition-opacity disabled:opacity-60"
-          >
-            {submitting ? "Submitting…" : "Get an invite"}
-          </button>
-        </form>
-        <div className="mt-3 text-xs text-secondary fade-up delay-4">
-          Read-only. Plaid + Splitwise.
+        <div className="relative mx-auto max-w-6xl px-4 sm:px-6 pt-20 pb-24 sm:pt-28 sm:pb-32">
+          <div className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 pill pill-teal mb-6">
+              <Sparkles className="h-3 w-3" strokeWidth={1.5} />
+              Now in private beta
+            </div>
+            <h1 className="text-3xl sm:text-[44px] lg:text-[56px] leading-[1.05] font-medium tracking-tight">
+              Your bank statement is wrong.
+              <br />
+              <span className="text-emerald-accent">Here&apos;s by how much.</span>
+            </h1>
+            <p className="mt-6 text-[17px] text-secondary max-w-xl leading-relaxed">
+              ActualSpend reconciles your bank with Splitwise so the math actually adds up. One clean number — what you really spent, after splits.
+            </p>
+
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Link href="/register"
+                className="inline-flex items-center h-11 px-5 rounded-md bg-foreground text-background text-sm hover:opacity-90 transition-opacity gap-1.5">
+                Join waitlist <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
+              </Link>
+              <a href="#how"
+                className="inline-flex items-center h-11 px-5 rounded-md text-foreground text-sm hover:bg-surface transition-colors">
+                See how it works
+              </a>
+            </div>
+          </div>
+
+          {/* Hero metric preview */}
+          <div className="relative mt-16 sm:mt-20">
+            <div className="surface-card p-6 sm:p-8 max-w-2xl shadow-lift">
+              <div className="text-[11px] uppercase tracking-wider text-secondary mb-2">Your actual spend · April</div>
+              <div className="font-mono text-[44px] sm:text-[64px] leading-none text-emerald-accent tracking-tight">
+                ${Math.floor(heroNum).toLocaleString()}<span className="text-secondary/60">.{String(Math.round((heroNum % 1) * 100)).padStart(2, "0")}</span>
+              </div>
+              <div className="mt-5 grid grid-cols-3 gap-4 text-sm border-t border-border pt-4">
+                <div>
+                  <div className="text-secondary text-xs">Bank outflow</div>
+                  <div className="font-mono text-foreground mt-1">$2,447.32</div>
+                </div>
+                <div>
+                  <div className="text-secondary text-xs">You fronted</div>
+                  <div className="font-mono text-amber-accent mt-1">$600.00</div>
+                </div>
+                <div>
+                  <div className="text-secondary text-xs">Pending</div>
+                  <div className="font-mono text-emerald-accent mt-1">$418.50</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="max-w-5xl mx-auto px-6 pb-24">
-        <div className="bg-surface border border-border rounded-xl p-8">
-          <div className="text-[11px] uppercase tracking-widest text-secondary">
-            Actual personal spend · Oct 2025
-          </div>
-          <div className="mt-4 font-mono text-5xl sm:text-6xl text-emerald-accent tracking-tight">
-            $2,890
-          </div>
-
-          <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-6 pt-6 border-t border-border">
-            <Metric label="Bank outflow" value="$4,218" />
-            <Metric label="Shared expenses fronted" value="−$1,840" />
-            <Metric
-              label="Reimbursements pending"
-              value="+$560"
-              sub="Owed to you · heuristic"
-            />
+      {/* PROBLEM / SOLUTION 3-UP */}
+      <section className="bg-surface border-y border-border">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-20">
+          <div className="max-w-2xl mb-12">
+            <div className="text-xs uppercase tracking-widest text-secondary mb-3">The math</div>
+            <h2 className="text-2xl sm:text-3xl font-medium tracking-tight">Three numbers that don&apos;t agree.</h2>
+            <p className="mt-3 text-secondary max-w-xl">Your bank, your Splitwise, and what you actually spent live in different worlds. Until now.</p>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-border">
-            <div className="text-[11px] uppercase tracking-widest text-secondary mb-4">
-              Where it went
+          <div className="grid md:grid-cols-3 gap-4">
+            {([
+              { tag: "Your bank says", amt: "$2,447", note: "Total outflow this month.", variant: "pill-muted" },
+              { tag: "You fronted", amt: "$600", note: "Paid on behalf of roommates.", variant: "pill-amber", color: "text-amber-accent" },
+              { tag: "You actually spent", amt: "$1,847", note: "After Splitwise reconciliation.", variant: "pill-teal", color: "text-emerald-accent" },
+            ] as const).map((c, i) => (
+              <div key={i} className="surface-card p-6 hover:-translate-y-0.5 transition-transform">
+                <div className={`pill ${c.variant} mb-4`}>{c.tag}</div>
+                <div className={`font-mono text-3xl ${(c as {color?: string}).color ?? "text-foreground"}`}>{c.amt}</div>
+                <p className="mt-3 text-sm text-secondary">{c.note}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-8 flex items-center gap-3 text-secondary font-mono text-[15px]">
+            <span>$2,447</span>
+            <span>−</span>
+            <span className="text-amber-accent">$600</span>
+            <span>=</span>
+            <span className="text-emerald-accent text-[18px] font-medium">$1,847</span>
+          </div>
+        </div>
+      </section>
+
+      {/* FEATURE STRIP */}
+      <section className="mx-auto max-w-6xl px-4 sm:px-6 py-16">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          {([
+            { icon: Shield, label: "Bank-grade security via Plaid" },
+            { icon: Zap, label: "Splitwise sync in seconds" },
+            { icon: RefreshCw, label: "Auto-reconciliation engine" },
+            { icon: Moon, label: "Dark mode included" },
+          ] as const).map((f, i) => (
+            <div key={i} className="flex items-start gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-emerald-soft text-emerald-accent shrink-0">
+                <f.icon className="h-4 w-4" strokeWidth={1.5} />
+              </span>
+              <div className="text-sm leading-snug pt-1.5">{f.label}</div>
             </div>
-            {(
-              [
-                ["Rent", 950, 950],
-                ["Groceries", 482, 950],
-                ["Eating out", 244, 950],
-                ["Social", 203, 950],
-                ["Utilities", 121, 950],
-              ] as const
-            ).map(([name, amt, max]) => (
-              <div key={name} className="mb-3">
-                <div className="flex items-baseline justify-between text-sm">
-                  <span>{name}</span>
-                  <span className="font-mono">${amt}</span>
-                </div>
-                <div className="mt-1.5 h-px bg-border w-full relative">
-                  <div
-                    className="absolute left-0 top-0 h-px bg-foreground"
-                    style={{ width: `${(amt / max) * 100}%` }}
-                  />
-                </div>
+          ))}
+        </div>
+      </section>
+
+      {/* HOW IT WORKS */}
+      <section id="how" className="bg-surface border-y border-border">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-20">
+          <div className="max-w-2xl mb-12">
+            <div className="text-xs uppercase tracking-widest text-secondary mb-3">How it works</div>
+            <h2 className="text-2xl sm:text-3xl font-medium tracking-tight">Three steps. Then forget it exists.</h2>
+          </div>
+          <div className="grid md:grid-cols-3 gap-6">
+            {[
+              { n: "01", title: "Connect bank + Splitwise", body: "Plaid handles your bank. We read your Splitwise via OAuth. Read-only, always." },
+              { n: "02", title: "We auto-match transactions", body: "Our heuristic engine pairs charges to splits in seconds — by amount, date and merchant." },
+              { n: "03", title: "See your real spend", body: "One dashboard, one number. Plus the receipts for every reconciliation." },
+            ].map((s, i) => (
+              <div key={i} className="surface-card p-6">
+                <div className="font-mono text-xs text-secondary tracking-wider">{s.n}</div>
+                <div className="mt-3 text-[18px] font-medium tracking-tight">{s.title}</div>
+                <p className="mt-2 text-sm text-secondary leading-relaxed">{s.body}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="max-w-3xl mx-auto px-6 pb-24">
-        <div className="text-[11px] uppercase tracking-widest text-secondary mb-8">
-          How it works
-        </div>
-
-        <Step
-          n="01"
-          title="Connect your bank accounts with Plaid."
-          mini={
-            <div className="font-mono text-xs space-y-1.5 text-secondary">
-              <div className="flex justify-between">
-                <span>Oct 12 COSTCO SF</span>
-                <span className="text-foreground">−$240.00</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Oct 13 AIRBNB</span>
-                <span className="text-foreground">−$680.00</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Oct 14 WHOLE FOODS</span>
-                <span className="text-foreground">−$74.18</span>
-              </div>
-              <div className="pt-2 mt-2 border-t border-border">
-                Connected via Plaid
-              </div>
-            </div>
-          }
-        />
-        <div className="ml-[44px] h-10 w-px bg-border" />
-        <Step
-          n="02"
-          title="Link your Splitwise account."
-          mini={
-            <div className="font-mono text-xs space-y-3 text-secondary">
-              <div>
-                <div className="text-foreground">Tahoe Airbnb</div>
-                <div>Total: $680.00 · Your share: $170.00</div>
-              </div>
-              <div>
-                <div className="text-foreground">Costco</div>
-                <div>Total: $240.00 · Your share: $80.00</div>
-              </div>
-            </div>
-          }
-        />
-        <div className="ml-[44px] h-10 w-px bg-border" />
-        <Step
-          n="03"
-          title="We reconcile the overlap and calculate what you actually spent."
-          mini={
-            <SubtractionBlock bank={4217} shared={1327} actual={2890} size="sm" />
-          }
-        />
-      </section>
-
-      <section className="max-w-5xl mx-auto px-6 pb-24">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
-          <div className="space-y-6">
-            <div className="text-[11px] uppercase tracking-widest text-secondary">
-              Raw inputs
-            </div>
-            <div className="bg-surface border border-border rounded-xl p-5">
-              <div className="text-[11px] uppercase tracking-wider text-secondary">
-                Bank transaction
-              </div>
-              <div className="font-mono text-xs text-secondary mt-2">
-                CHASE CHECKING · Oct 12
-              </div>
-              <div className="mt-1 text-[15px]">COSTCO WHOLESALE #412</div>
-              <div className="mt-3 font-mono text-xl">−$240.00</div>
-            </div>
-            <div className="ml-4 h-6 w-px bg-border" />
-            <div className="bg-surface border border-border rounded-xl p-5">
-              <div className="text-[11px] uppercase tracking-wider text-secondary">
-                Splitwise entry
-              </div>
-              <div className="mt-2 text-[15px]">Costco run</div>
-              <div className="mt-2 font-mono text-xs text-secondary space-y-0.5">
-                <div>Total expense: $240.00</div>
-                <div>Your share: $80.00</div>
-                <div>3 people · Settled via Venmo</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="lg:pl-10 lg:border-l lg:border-border">
-            <div className="text-[11px] uppercase tracking-widest text-secondary">
-              Resolved
-            </div>
-            <div className="mt-4 text-[11px] uppercase tracking-wider text-secondary">
-              Actual spend
-            </div>
-            <div className="mt-2 font-mono text-6xl text-emerald-accent">
-              $80
-            </div>
-            <div className="mt-3 text-secondary text-sm">
-              $160 attributed to roommates.
-            </div>
-            <div className="mt-8 max-w-sm">
-              <SubtractionBlock
-                bank={240}
-                shared={160}
-                actual={80}
-                bankLabel="Bank charge"
-                sharedLabel="Roommates' share"
-                actualLabel="Your share"
-                decimals={0}
-              />
-            </div>
+      {/* CTA */}
+      <section className="bg-emerald-accent text-background">
+        <div className="mx-auto max-w-4xl px-4 sm:px-6 py-20 text-center">
+          <h2 className="text-2xl sm:text-3xl font-medium tracking-tight">Get early access.</h2>
+          <p className="mt-3 text-background/80 max-w-md mx-auto text-[15px]">
+            We&apos;re opening invites in batches. Drop your email below.
+          </p>
+          <form onSubmit={submit} className="mt-7 flex flex-col sm:flex-row gap-2 max-w-md mx-auto">
+            <input
+              type="email" required placeholder="you@neighborhood.nyc"
+              value={email} onChange={(e) => setEmail(e.target.value)}
+              className="h-11 flex-1 px-4 rounded-md bg-background/95 text-foreground border-transparent text-sm placeholder:text-secondary focus:outline-none"
+              data-testid="waitlist-email"
+            />
+            <button type="submit" disabled={submitting}
+              className="h-11 px-5 rounded-md bg-background text-emerald-accent text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-60 flex items-center gap-1.5 whitespace-nowrap justify-center"
+              data-testid="waitlist-submit">
+              {submitting ? "Adding…" : <><span>Get access</span> <ArrowRight className="h-4 w-4" strokeWidth={1.5} /></>}
+            </button>
+          </form>
+          <div className="mt-4 text-xs text-background/70 flex items-center justify-center gap-1.5">
+            <Check className="h-3 w-3" strokeWidth={2} /> No spam. Unsubscribe anytime.
           </div>
         </div>
       </section>
 
-      <section className="max-w-3xl mx-auto px-6 pb-24">
-        <h2 className="text-2xl tracking-tight font-medium">
-          Your data stays yours.
-        </h2>
-        <ul className="mt-6 space-y-2 text-secondary">
-          {[
-            "Plaid handles bank authentication.",
-            "Read-only transaction access.",
-            "Splitwise connected through OAuth.",
-            "No ads.",
-            "No selling transaction data.",
-            "Tokens encrypted at rest.",
-            "Delete your account at any time.",
-          ].map((t) => (
-            <li key={t} className="flex gap-3">
-              <span className="text-secondary mt-2">·</span>
-              <span>{t}</span>
-            </li>
-          ))}
-        </ul>
-        <div className="mt-8 flex gap-8 text-secondary font-mono text-sm">
-          <span>plaid</span>
-          <span>splitwise</span>
-        </div>
-      </section>
-
-      <section className="max-w-3xl mx-auto px-6 pb-24">
-        <div className="text-[11px] uppercase tracking-widest text-secondary mb-4">
-          FAQ
-        </div>
-        <Accordion type="single" collapsible className="w-full">
-          {faqs.map((f, i) => (
-            <AccordionItem
-              key={f.q}
-              value={`q-${i}`}
-              className="border-border"
-            >
-              <AccordionTrigger
-                data-testid={`faq-trigger-${i}`}
-                className="text-left text-[15px] hover:no-underline"
-              >
-                {f.q}
-              </AccordionTrigger>
-              <AccordionContent className="text-secondary text-[15px] leading-relaxed">
-                {f.a}
-              </AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
-      </section>
-
-      <footer className="border-t border-border">
-        <div className="max-w-3xl mx-auto px-6 py-10 text-sm text-secondary flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between">
-          <div className="flex gap-5">
-            <Link href="/security" className="hover:text-foreground">
-              Privacy
-            </Link>
-            <Link href="/terms" className="hover:text-foreground">
-              Terms
-            </Link>
+      {/* FOOTER */}
+      <footer className="bg-background border-t border-border">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-sm text-secondary">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center justify-center h-6 w-6 rounded-md bg-emerald-accent text-background font-mono text-xs">$</span>
+            <span>© 2026 ActualSpend</span>
           </div>
-          <div className="font-mono">rathod.pr@northeastern.edu</div>
-        </div>
-        <div className="max-w-3xl mx-auto px-6 pb-10 text-xs text-secondary">
-          Built by an indie developer.
+          <nav className="flex items-center gap-5">
+            <Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link>
+            <Link href="/security" className="hover:text-foreground transition-colors">Privacy</Link>
+            <Link href="/security" className="hover:text-foreground transition-colors">Security</Link>
+          </nav>
         </div>
       </footer>
-    </div>
-  );
-}
-
-function Metric({
-  label,
-  value,
-  sub,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-}) {
-  return (
-    <div>
-      <div className="text-[11px] uppercase tracking-wider text-secondary">
-        {label}
-      </div>
-      <div className="mt-2 font-mono text-2xl">{value}</div>
-      {sub && <div className="mt-1 text-xs text-secondary">{sub}</div>}
-    </div>
-  );
-}
-
-function Step({
-  n,
-  title,
-  mini,
-}: {
-  n: string;
-  title: string;
-  mini: React.ReactNode;
-}) {
-  return (
-    <div className="flex gap-6">
-      <div className="font-mono text-sm text-secondary w-7 pt-1">{n}</div>
-      <div className="flex-1">
-        <div className="text-[17px] leading-snug">{title}</div>
-        <div className="mt-4 bg-surface border border-border rounded-xl p-4">
-          {mini}
-        </div>
-      </div>
     </div>
   );
 }

@@ -1,231 +1,129 @@
-import Link from "next/link";
-import { notFound } from "next/navigation";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
-
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
-  splitwiseExpenseParticipants,
-  splitwiseExpenses,
   splitwiseFriends,
+  splitwiseExpenses,
+  splitwiseExpenseParticipants,
+  userRoommates,
 } from "@/lib/db/schema";
-import { usd } from "@/lib/format";
-
+import { eq, and, inArray } from "drizzle-orm";
+import Link from "next/link";
 import { AppHeader } from "@/components/app-header";
+import { usd, dateShort } from "@/lib/format";
+import { ArrowLeft, Home } from "lucide-react";
 
-function fmtDate(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-export default async function FriendPage({
+export default async function FriendDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const session = await auth();
-  const user = session?.user;
-  if (!user?.id) return null;
+  if (!session?.user?.id) return null;
 
-  const { id: idParam } = await params;
-  const splitwiseUserId = parseInt(idParam, 10);
-  if (!Number.isFinite(splitwiseUserId)) notFound();
+  const { id } = await params;
+  const splitwiseUserId = parseInt(id, 10);
+  if (isNaN(splitwiseUserId)) return <div>Invalid friend ID</div>;
 
-  const [friend] = await db
-    .select()
-    .from(splitwiseFriends)
-    .where(
-      and(
-        eq(splitwiseFriends.userId, user.id),
-        eq(splitwiseFriends.splitwiseUserId, splitwiseUserId),
-      ),
-    );
-  if (!friend) notFound();
+  const userId = session.user.id;
 
-  const friendExpenseIds = (
-    await db
-      .select({ expenseId: splitwiseExpenseParticipants.expenseId })
-      .from(splitwiseExpenseParticipants)
-      .where(eq(splitwiseExpenseParticipants.splitwiseUserId, splitwiseUserId))
-  ).map((r) => r.expenseId);
+  const [friend, roommateRows] = await Promise.all([
+    db.select().from(splitwiseFriends)
+      .where(and(eq(splitwiseFriends.userId, userId), eq(splitwiseFriends.splitwiseUserId, splitwiseUserId)))
+      .limit(1).then((r) => r[0] ?? null),
+    db.select().from(userRoommates)
+      .where(and(eq(userRoommates.userId, userId), eq(userRoommates.splitwiseUserId, splitwiseUserId)))
+      .limit(1),
+  ]);
 
-  const expenses =
-    friendExpenseIds.length > 0
-      ? await db
-          .select({
-            id: splitwiseExpenses.id,
-            description: splitwiseExpenses.description,
-            cost: splitwiseExpenses.cost,
-            date: splitwiseExpenses.date,
-            userShare: splitwiseExpenses.userShare,
-            paidByUser: splitwiseExpenses.paidByUser,
-            isPayment: splitwiseExpenses.isPayment,
-          })
-          .from(splitwiseExpenses)
-          .where(
-            and(
-              eq(splitwiseExpenses.userId, user.id),
-              isNull(splitwiseExpenses.deletedAt),
-              inArray(splitwiseExpenses.id, friendExpenseIds),
-            ),
-          )
-          .orderBy(desc(splitwiseExpenses.date))
-      : [];
+  if (!friend) return <div>Friend not found.</div>;
 
-  const theirShares =
-    expenses.length > 0
-      ? await db
-          .select({
-            expenseId: splitwiseExpenseParticipants.expenseId,
-            paidShare: splitwiseExpenseParticipants.paidShare,
-            owedShare: splitwiseExpenseParticipants.owedShare,
-          })
-          .from(splitwiseExpenseParticipants)
-          .where(
-            and(
-              eq(
-                splitwiseExpenseParticipants.splitwiseUserId,
-                splitwiseUserId,
-              ),
-              inArray(
-                splitwiseExpenseParticipants.expenseId,
-                expenses.map((e) => e.id),
-              ),
-            ),
-          )
-      : [];
-  const theirShareByExpense = new Map(
-    theirShares.map((s) => [s.expenseId, s]),
-  );
+  const friendParticipations = await db
+    .select({ expenseId: splitwiseExpenseParticipants.expenseId })
+    .from(splitwiseExpenseParticipants)
+    .where(eq(splitwiseExpenseParticipants.splitwiseUserId, splitwiseUserId));
 
-  const realExpenses = expenses.filter((e) => !e.isPayment);
-  const payments = expenses.filter((e) => e.isPayment);
-  const totalSpentTogether = realExpenses.reduce(
-    (s, e) => s + Number(e.cost),
-    0,
-  );
+  const expenseIds = [...new Set(friendParticipations.map((p) => p.expenseId))];
+
+  const timeline = expenseIds.length > 0
+    ? (await db
+        .select()
+        .from(splitwiseExpenses)
+        .where(and(eq(splitwiseExpenses.userId, userId), inArray(splitwiseExpenses.id, expenseIds))))
+        .filter((e) => !e.isPayment && !e.deletedAt)
+        .sort((a, b) => b.date.localeCompare(a.date))
+    : [];
+
+  const name = `${friend.firstName ?? ""} ${friend.lastName ?? ""}`.trim();
+  const initials = name.split(" ").filter(Boolean).slice(0, 2).map((n) => n[0].toUpperCase()).join("");
   const balance = Number(friend.balance);
-  const fullName =
-    `${friend.firstName ?? ""} ${friend.lastName ?? ""}`.trim() ||
-    `Friend ${splitwiseUserId}`;
+  const owesYou = balance > 0;
+  const isRoommate = roommateRows.length > 0;
 
   return (
     <div className="min-h-screen bg-background">
       <AppHeader variant="app" />
-
-      <main className="max-w-3xl mx-auto px-6 pt-10 pb-24">
-        <Link
-          href="/accounts"
-          className="text-sm text-secondary hover:text-foreground"
-        >
-          ← Accounts
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10 pb-24 space-y-6">
+        <Link href="/friends" className="inline-flex items-center gap-1.5 text-sm text-secondary hover:text-foreground transition-colors">
+          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.5} /> Back to friends
         </Link>
 
-        <section className="mt-6 flex items-center gap-4">
-          {friend.pictureUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={friend.pictureUrl}
-              alt={fullName}
-              width={56}
-              height={56}
-              className="rounded-full border border-border"
-            />
-          )}
-          <div>
-            <h1 className="text-2xl tracking-tight font-medium">{fullName}</h1>
-            {friend.email && (
-              <p className="mt-1 text-sm text-secondary font-mono">
-                {friend.email}
-              </p>
-            )}
-            <p className="mt-2 text-sm">
-              {balance > 0 ? (
-                <span className="font-medium text-emerald-accent">
-                  Owes you {usd(balance, { decimals: 2 })}
+        <div className="surface-card p-6 flex flex-col sm:flex-row sm:items-center gap-6">
+          <div className="h-16 w-16 rounded-full bg-emerald-soft text-emerald-accent flex items-center justify-center text-xl font-medium shrink-0">
+            {initials}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-[22px] font-medium tracking-tight">{name}</h1>
+              {isRoommate && (
+                <span className="pill pill-teal">
+                  <Home className="h-3 w-3" strokeWidth={1.5} /> Roommate
                 </span>
-              ) : balance < 0 ? (
-                <span className="font-medium text-amber-accent">
-                  You owe {usd(Math.abs(balance), { decimals: 2 })}
-                </span>
-              ) : (
-                <span className="text-secondary">Settled up</span>
               )}
-            </p>
+            </div>
+            {friend.email && (
+              <div className="text-sm text-secondary mt-1">
+                {friend.email} · {timeline.length} shared expense{timeline.length !== 1 ? "s" : ""}
+              </div>
+            )}
           </div>
-        </section>
+          {balance !== 0 && (
+            <div className="sm:border-l sm:border-border sm:pl-6 shrink-0">
+              <div className="text-[11px] uppercase tracking-widest text-secondary">Balance</div>
+              <div className={`font-mono text-[32px] mt-1 leading-none ${owesYou ? "text-emerald-accent" : "text-destructive"}`}>
+                {owesYou ? "+" : "−"}{usd(Math.abs(balance), { decimals: 2 })}
+              </div>
+              <div className="text-xs text-secondary mt-1">{owesYou ? "Owes you" : "You owe"}</div>
+            </div>
+          )}
+        </div>
 
-        <section className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Stat
-            label="Spent together"
-            value={usd(totalSpentTogether, { decimals: 0 })}
-          />
-          <Stat label="Expenses" value={String(realExpenses.length)} />
-          <Stat label="Payments" value={String(payments.length)} />
-        </section>
-
-        <section className="mt-10">
-          <div className="text-[11px] uppercase tracking-widest text-secondary mb-4">
-            Recent activity
-          </div>
-          {expenses.length === 0 ? (
-            <p className="text-sm text-secondary">No shared expenses yet.</p>
+        <div className="surface-card p-5">
+          <div className="text-sm font-medium mb-4">Shared expenses</div>
+          {timeline.length === 0 ? (
+            <div className="text-sm text-secondary py-6 text-center">No shared expenses found.</div>
           ) : (
-            <ul className="bg-surface border border-border rounded-xl divide-y divide-border">
-              {expenses.slice(0, 50).map((e) => {
-                const theirs = theirShareByExpense.get(e.id);
-                return (
-                  <li key={e.id} className="px-5 py-3 text-sm">
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <div className="flex items-baseline gap-2">
-                        <span className="font-medium">
-                          {e.description || "(no description)"}
-                        </span>
-                        <span className="text-xs text-secondary font-mono">
-                          {fmtDate(e.date)}
-                        </span>
-                        {e.isPayment && (
-                          <span className="rounded-md bg-secondary px-1.5 py-0.5 text-[11px] uppercase tracking-wider text-secondary">
-                            payment
-                          </span>
-                        )}
-                      </div>
+            <ol className="relative border-l border-border ml-2">
+              {timeline.map((e) => (
+                <li key={e.id} className="ml-5 pb-5">
+                  <span className="absolute -left-1 mt-1.5 h-2 w-2 rounded-full bg-emerald-accent" />
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{e.description ?? "(no description)"}</div>
+                      <div className="text-xs text-secondary mt-0.5">{dateShort(e.date)}</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="font-mono text-sm">{usd(Number(e.cost), { decimals: 2 })}</div>
                       <div className="text-xs text-secondary font-mono">
-                        bill {usd(Number(e.cost), { decimals: 2 })} · you paid{" "}
-                        {usd(Number(e.paidByUser), { decimals: 2 })} / owe{" "}
-                        {usd(Number(e.userShare), { decimals: 2 })}
-                        {theirs && (
-                          <>
-                            {" · "}they paid{" "}
-                            {usd(Number(theirs.paidShare), { decimals: 2 })} /
-                            owe{" "}
-                            {usd(Number(theirs.owedShare), { decimals: 2 })}
-                          </>
-                        )}
+                        your share {usd(Number(e.userShare), { decimals: 2 })}
                       </div>
                     </div>
-                  </li>
-                );
-              })}
-            </ul>
+                  </div>
+                </li>
+              ))}
+            </ol>
           )}
-        </section>
+        </div>
       </main>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-surface border border-border rounded-xl px-5 py-4">
-      <div className="text-[11px] uppercase tracking-wider text-secondary">
-        {label}
-      </div>
-      <div className="mt-2 font-mono text-2xl">{value}</div>
     </div>
   );
 }
