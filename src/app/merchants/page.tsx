@@ -5,6 +5,8 @@ import { reconciliations, transactions } from "@/lib/db/schema";
 import { RECONCILIATION_TYPES, STATES } from "@/lib/reconciliation/types";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { AppHeader } from "@/components/app-header";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { MerchantTxnTooltip } from "@/components/merchant-txn-tooltip";
 import { MonthPicker } from "@/components/month-picker";
 import { PaginationControls } from "@/components/pagination-controls";
 import { SortSelect } from "@/components/sort-select";
@@ -83,12 +85,21 @@ type MerchantRow = {
   totalActual: number;
   txnCount: number;
   lastSeen: string;
+  txnDates: { date: string; amount: number }[]; // up to 5 most recent
+};
+
+type ChannelTxn = {
+  merchant: string;
+  date: string;
+  actualAmount: number;
+  bankAmount: number;
 };
 
 type ChannelRow = {
   channel: string;
   totalActual: number;
   txnCount: number;
+  txns: ChannelTxn[];
 };
 
 const BASE_WHERE = (userId: string) =>
@@ -161,6 +172,26 @@ async function fetchMerchants(
     .limit(PAGE_SIZE)
     .offset((page - 1) * PAGE_SIZE);
 
+  // Fetch all txn dates for the month, group by merchant in memory.
+  // Used for the hover tooltip on multi-txn rows.
+  const allTxnDates = await db
+    .select({
+      merchant: sql<string>`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
+      date: transactions.date,
+      amount: reconciliations.actualAmount,
+    })
+    .from(reconciliations)
+    .innerJoin(transactions, eq(transactions.id, reconciliations.transactionId))
+    .where(and(BASE_WHERE(userId), dateFilter))
+    .orderBy(sql`${transactions.date} DESC`);
+
+  const datesByMerchant = new Map<string, { date: string; amount: number }[]>();
+  for (const t of allTxnDates) {
+    const arr = datesByMerchant.get(t.merchant) ?? [];
+    arr.push({ date: t.date, amount: Number(t.amount) });
+    datesByMerchant.set(t.merchant, arr);
+  }
+
   return {
     rows: rows.map((r) => ({
       merchant: r.merchant,
@@ -169,6 +200,7 @@ async function fetchMerchants(
       totalActual: Number(r.totalActual ?? 0),
       txnCount: Number(r.txnCount ?? 0),
       lastSeen: r.lastSeen ?? "",
+      txnDates: (datesByMerchant.get(r.merchant) ?? []).slice(0, 5),
     })),
     total,
     grandTotal,
@@ -179,7 +211,14 @@ async function fetchMerchants(
 async function fetchChannels(userId: string, yearMonth: string): Promise<ChannelRow[]> {
   const { from, to } = monthDateRange(yearMonth);
 
-  const rows = await db
+  const dateFilter = and(
+    sql`${transactions.channel} IS NOT NULL`,
+    sql`${transactions.date} >= ${from}`,
+    sql`${transactions.date} <= ${to}`,
+  );
+
+  // Aggregate per channel
+  const agg = await db
     .select({
       channel: transactions.channel,
       totalActual: sql<number>`SUM(${reconciliations.actualAmount}::numeric)`,
@@ -187,23 +226,45 @@ async function fetchChannels(userId: string, yearMonth: string): Promise<Channel
     })
     .from(reconciliations)
     .innerJoin(transactions, eq(transactions.id, reconciliations.transactionId))
-    .where(
-      and(
-        BASE_WHERE(userId),
-        sql`${transactions.channel} IS NOT NULL`,
-        sql`${transactions.date} >= ${from}`,
-        sql`${transactions.date} <= ${to}`,
-      ),
-    )
+    .where(and(BASE_WHERE(userId), dateFilter))
     .groupBy(transactions.channel)
     .orderBy(sql`SUM(${reconciliations.actualAmount}::numeric) DESC`);
 
-  return rows
+  // Individual transactions per channel
+  const txnRows = await db
+    .select({
+      channel: transactions.channel,
+      merchant: sql<string>`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
+      date: transactions.date,
+      actualAmount: reconciliations.actualAmount,
+      bankAmount: transactions.amount,
+    })
+    .from(reconciliations)
+    .innerJoin(transactions, eq(transactions.id, reconciliations.transactionId))
+    .where(and(BASE_WHERE(userId), dateFilter))
+    .orderBy(sql`${transactions.date} DESC`);
+
+  // Group txns by channel
+  const txnsByChannel = new Map<string, ChannelTxn[]>();
+  for (const t of txnRows) {
+    if (!t.channel) continue;
+    const arr = txnsByChannel.get(t.channel) ?? [];
+    arr.push({
+      merchant: t.merchant,
+      date: t.date,
+      actualAmount: Number(t.actualAmount),
+      bankAmount: Number(t.bankAmount),
+    });
+    txnsByChannel.set(t.channel, arr);
+  }
+
+  return agg
     .filter((r): r is typeof r & { channel: string } => !!r.channel)
     .map((r) => ({
       channel: r.channel,
       totalActual: Number(r.totalActual ?? 0),
       txnCount: Number(r.txnCount ?? 0),
+      txns: txnsByChannel.get(r.channel) ?? [],
     }));
 }
 
@@ -330,8 +391,12 @@ function MerchantTable({
               <div className="w-32 flex justify-center shrink-0">
                 <span className={`pill ${catPill}`}>{catLabel}</span>
               </div>
-              {/* Txns */}
-              <div className="w-14 text-right font-mono text-sm text-secondary shrink-0">{r.txnCount}</div>
+              {/* Txns — tooltip shows dates on hover when > 1 */}
+              <MerchantTxnTooltip txnCount={r.txnCount} txnDates={r.txnDates}>
+                <div className={`w-14 text-right font-mono text-sm shrink-0 ${r.txnCount > 1 ? "text-foreground cursor-default underline decoration-dotted underline-offset-4" : "text-secondary"}`}>
+                  {r.txnCount}
+                </div>
+              </MerchantTxnTooltip>
               {/* Total */}
               <div className="w-28 text-right font-mono text-sm font-medium shrink-0">{usd(r.totalActual, { decimals: 2 })}</div>
             </div>
@@ -350,45 +415,69 @@ function MerchantTable({
 }
 
 function ChannelTable({ rows }: { rows: ChannelRow[] }) {
-  const total = rows.reduce((s, r) => s + r.totalActual, 0);
+  const grandTotal = rows.reduce((s, r) => s + r.totalActual, 0);
   const max = rows[0]?.totalActual ?? 1;
 
   return (
     <div className="bg-surface border border-border rounded-xl overflow-hidden">
       <div className="px-4 py-2.5 border-b border-border">
-        <span className="text-[11px] uppercase tracking-widest text-secondary">
-          By channel
-        </span>
+        <span className="text-[11px] uppercase tracking-widest text-secondary">By channel</span>
       </div>
-      <div className="divide-y divide-border">
+
+      <Accordion type="single" collapsible className="divide-y divide-border">
         {rows.map((r) => {
           const barPct = max > 0 ? (r.totalActual / max) * 100 : 0;
           return (
-            <div key={r.channel} className="px-4 py-3 hover:bg-background/50 transition-colors">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm">{r.channel}</span>
-                <div className="text-right shrink-0">
-                  <div className="font-mono text-sm">{usd(r.totalActual, { decimals: 0 })}</div>
-                  <div className="text-[11px] text-secondary font-mono">
-                    {r.txnCount} txn{r.txnCount !== 1 ? "s" : ""}
+            <AccordionItem key={r.channel} value={r.channel} className="border-0">
+              <AccordionTrigger className="px-4 py-3 hover:bg-background/50 hover:no-underline [&>svg]:shrink-0">
+                <div className="flex-1 mr-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium">{r.channel}</span>
+                    <div className="text-right shrink-0">
+                      <div className="font-mono text-sm">{usd(r.totalActual, { decimals: 0 })}</div>
+                      <div className="text-[11px] text-secondary font-mono">
+                        {r.txnCount} txn{r.txnCount !== 1 ? "s" : ""}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 h-1.5 bg-border rounded-full overflow-hidden">
+                    <div className="h-full bg-foreground/50 rounded-full" style={{ width: `${barPct.toFixed(1)}%` }} />
+                  </div>
+                  <div className="mt-1 text-[10px] text-secondary font-mono text-left">
+                    {grandTotal > 0 ? ((r.totalActual / grandTotal) * 100).toFixed(0) : 0}% of channel spend
                   </div>
                 </div>
-              </div>
-              {/* Bar */}
-              <div className="mt-2 h-1.5 bg-border rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-foreground/50 rounded-full"
-                  style={{ width: `${barPct.toFixed(1)}%` }}
-                />
-              </div>
-              {/* % of channel total */}
-              <div className="mt-1 text-[10px] text-secondary font-mono">
-                {total > 0 ? ((r.totalActual / total) * 100).toFixed(0) : 0}% of channel spend
-              </div>
-            </div>
+              </AccordionTrigger>
+
+              <AccordionContent>
+                <div className="px-4 pb-3 space-y-0">
+                  {/* Sub-header */}
+                  <div className="flex items-center justify-between py-1.5 border-b border-border mb-1 text-[10px] uppercase tracking-widest text-secondary">
+                    <span>Merchant</span>
+                    <div className="flex gap-6">
+                      <span>Date</span>
+                      <span className="w-20 text-right">Actual</span>
+                    </div>
+                  </div>
+                  {r.txns.map((t, i) => (
+                    <div key={i} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0 text-sm">
+                      <span className="truncate mr-3 text-secondary">{t.merchant}</span>
+                      <div className="flex items-center gap-6 shrink-0">
+                        <span className="text-xs text-secondary font-mono">
+                          {new Date(t.date).toLocaleDateString("en-US", { month: "short", day: "2-digit" })}
+                        </span>
+                        <span className="font-mono text-xs w-20 text-right">
+                          {usd(t.actualAmount, { decimals: 2 })}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
           );
         })}
-      </div>
+      </Accordion>
     </div>
   );
 }
