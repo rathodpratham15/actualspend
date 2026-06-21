@@ -7,6 +7,7 @@ import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { AppHeader } from "@/components/app-header";
 import { MonthPicker } from "@/components/month-picker";
 import { PaginationControls } from "@/components/pagination-controls";
+import { MerchantFavicon } from "@/components/merchant-favicon";
 import { usd } from "@/lib/format";
 
 const CAT_LABELS: Record<string, string> = {
@@ -282,14 +283,6 @@ function MerchantTable({
 }) {
   return (
     <div className="surface-card overflow-hidden">
-      {/* Header row */}
-      <div className="hidden sm:grid grid-cols-[1fr,auto,auto,auto] gap-4 px-5 py-3 text-[11px] uppercase tracking-widest text-secondary border-b border-border bg-background/50">
-        <div>Merchant</div>
-        <div>Category</div>
-        <div className="text-right w-16">Txns</div>
-        <div className="text-right w-28">Total</div>
-      </div>
-
       <div className="divide-y divide-border">
         {rows.map((r, i) => {
           const catLabel = r.category ? (CAT_LABELS[r.category] ?? r.category) : "Other";
@@ -297,30 +290,26 @@ function MerchantTable({
           return (
             <div
               key={`${r.merchant}-${i}`}
-              className="grid grid-cols-[1fr,auto] sm:grid-cols-[1fr,auto,auto,auto] gap-4 px-5 py-3.5 items-center hover:bg-muted/30 transition-colors"
+              className="flex items-center gap-3 px-5 py-3.5 hover:bg-muted/30 transition-colors"
             >
-              {/* Merchant + avatar */}
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-muted text-xs font-mono text-secondary shrink-0">
-                  {r.merchant.slice(0, 1).toUpperCase()}
-                </span>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium truncate">{r.merchant}</div>
-                  <div className="text-[11px] text-secondary sm:hidden">{r.txnCount} txns</div>
+              <MerchantFavicon name={r.merchant} />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{r.merchant}</div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className={`pill ${catPill}`}>{catLabel}</span>
+                  <span className="text-xs text-secondary font-mono">
+                    {r.txnCount} {r.txnCount === 1 ? "txn" : "txns"}
+                  </span>
                 </div>
               </div>
-              {/* Category pill */}
-              <span className={`pill ${catPill} hidden sm:inline-flex`}>{catLabel}</span>
-              {/* Txn count */}
-              <div className="hidden sm:block text-right font-mono text-xs text-secondary w-16">{r.txnCount}</div>
-              {/* Total */}
-              <div className="text-right font-mono text-sm w-28">{usd(r.totalActual, { decimals: 0 })}</div>
+              <div className="text-sm font-mono font-medium shrink-0">
+                {usd(r.totalActual, { decimals: 0 })}
+              </div>
             </div>
           );
         })}
       </div>
 
-      {/* Pagination */}
       <div className="flex items-center justify-between px-5 py-3 border-t border-border text-xs text-secondary">
         <div>Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}</div>
         <Suspense>

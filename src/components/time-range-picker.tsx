@@ -8,13 +8,6 @@ import type { DateRange } from "react-day-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 
-const QUICK_RANGES = [
-  { id: "1M", label: "1M", months: 1 },
-  { id: "3M", label: "3M", months: 3 },
-  { id: "6M", label: "6M", months: 6 },
-  { id: "1Y", label: "1Y", months: 12 },
-] as const;
-
 const PRESETS = ["This month", "Last month", "Last 30 days", "Last 90 days", "Year to date"] as const;
 type Preset = (typeof PRESETS)[number];
 
@@ -69,60 +62,19 @@ export function TimeRangePicker({ from, to }: { from: string; to: string }) {
     startTransition(() => router.push(`${pathname}?${p.toString()}`));
   };
 
-  const navigateMonths = (months: number) => {
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
-    navigate(start, now);
-  };
-
-  // Determine active quick range.
-  const now = new Date();
-  const fromDate = new Date(from);
-  const diffMonths = Math.round((now.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24 * 30));
-  const activeQuick =
-    diffMonths <= 1 ? "1M" : diffMonths <= 3 ? "3M" : diffMonths <= 6 ? "6M" : diffMonths <= 12 ? "1Y" : null;
-
-  // Custom label when a non-quick range is active.
-  const isCustom = !activeQuick;
-  const customLabel = isCustom
-    ? `${parseIso(from).toLocaleDateString("en-US", { month: "short", day: "2-digit" })} – ${parseIso(to).toLocaleDateString("en-US", { month: "short", day: "2-digit" })}`
-    : null;
+  const label = `${parseIso(from).toLocaleDateString("en-US", { month: "short", day: "2-digit" })} – ${parseIso(to).toLocaleDateString("en-US", { month: "short", day: "2-digit" })}`;
 
   return (
     <div className="flex items-center gap-1">
-      {/* Quick range buttons */}
-      <div className="flex items-center gap-1 bg-muted/50 rounded-md p-1" data-testid="range-toggle">
-        {QUICK_RANGES.map((r) => (
-          <button
-            key={r.id}
-            type="button"
-            onClick={() => navigateMonths(r.months)}
-            data-testid={`range-${r.label}`}
-            className={`px-3 h-8 text-xs font-medium rounded-md transition-colors ${
-              activeQuick === r.id
-                ? "bg-surface text-foreground shadow-soft"
-                : "text-secondary hover:text-foreground"
-            }`}
-          >
-            {r.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Custom / calendar button */}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
             data-testid="date-range-trigger"
-            className={`inline-flex items-center gap-1.5 h-10 px-3 rounded-md border text-sm transition-colors ${
-              isCustom
-                ? "border-foreground bg-surface text-foreground font-mono"
-                : "border-border text-secondary hover:text-foreground hover:bg-surface"
-            }`}
+            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border bg-surface text-sm font-mono hover:bg-secondary transition-colors"
           >
-            <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline">{customLabel ?? "Custom"}</span>
+            <CalendarIcon className="h-3.5 w-3.5 text-secondary shrink-0" />
+            <span className="hidden sm:inline">{label}</span>
           </button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-auto max-w-[calc(100vw-2rem)] p-0 bg-surface border-border">
