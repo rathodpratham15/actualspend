@@ -7,6 +7,14 @@ import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { AppHeader } from "@/components/app-header";
 import { MonthPicker } from "@/components/month-picker";
 import { PaginationControls } from "@/components/pagination-controls";
+import { SortSelect } from "@/components/sort-select";
+
+const SORT_OPTIONS_M = [
+  { value: "total_desc", label: "Spend (high → low)" },
+  { value: "total_asc",  label: "Spend (low → high)" },
+  { value: "txns_desc",  label: "Transactions (most)" },
+  { value: "name",       label: "Name (A → Z)" },
+];
 import { MerchantFavicon } from "@/components/merchant-favicon";
 import { usd } from "@/lib/format";
 
@@ -41,6 +49,11 @@ function parseYearMonth(raw: string | undefined): string {
 function parsePage(raw: string | undefined): number {
   const n = parseInt(raw ?? "1", 10);
   return isNaN(n) || n < 1 ? 1 : n;
+}
+
+function parseSort(raw: string | undefined): string {
+  const valid = SORT_OPTIONS_M.map((o) => o.value);
+  return valid.includes(raw ?? "") ? (raw as string) : "total_desc";
 }
 
 function monthLabel(ym: string): string {
@@ -96,6 +109,7 @@ async function fetchMerchants(
   userId: string,
   yearMonth: string,
   page: number,
+  sort = "total_desc",
 ): Promise<{ rows: MerchantRow[]; total: number; grandTotal: number; globalMax: number }> {
   const { from, to } = monthDateRange(yearMonth);
 
@@ -138,7 +152,12 @@ async function fetchMerchants(
       sql`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
       transactions.channel,
     )
-    .orderBy(sql`SUM(${reconciliations.actualAmount}::numeric) DESC`)
+    .orderBy(
+      sort === "total_asc"  ? sql`SUM(${reconciliations.actualAmount}::numeric) ASC` :
+      sort === "txns_desc"  ? sql`COUNT(DISTINCT ${reconciliations.id}) DESC` :
+      sort === "name"       ? sql`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name}) ASC` :
+                              sql`SUM(${reconciliations.actualAmount}::numeric) DESC`
+    )
     .limit(PAGE_SIZE)
     .offset((page - 1) * PAGE_SIZE);
 
@@ -203,9 +222,10 @@ export default async function MerchantsPage({
   const params = await searchParams;
   const yearMonth = parseYearMonth(params.m as string | undefined);
   const page = parsePage(params.page as string | undefined);
+  const sort = parseSort(params.sort as string | undefined);
 
   const [{ rows: merchants, total, grandTotal, globalMax }, channels] = await Promise.all([
-    fetchMerchants(session.user.id, yearMonth, page),
+    fetchMerchants(session.user.id, yearMonth, page, sort),
     fetchChannels(session.user.id, yearMonth),
   ]);
 
@@ -223,7 +243,8 @@ export default async function MerchantsPage({
             <div className="text-[11px] uppercase tracking-widest text-secondary">Merchants</div>
             <h1 className="text-[22px] font-medium tracking-tight mt-1">Monthly spend by merchant</h1>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Suspense><SortSelect options={SORT_OPTIONS_M} current={sort} /></Suspense>
             <div className="surface-card px-1 py-1 rounded-md">
               <Suspense><MonthPicker yearMonth={yearMonth} /></Suspense>
             </div>
