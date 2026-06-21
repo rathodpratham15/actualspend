@@ -283,6 +283,14 @@ function MerchantTable({
 }) {
   return (
     <div className="surface-card overflow-hidden">
+      {/* Header row */}
+      <div className="flex items-center gap-4 px-5 py-3 text-[11px] uppercase tracking-widest text-secondary border-b border-border bg-background/50">
+        <div className="flex-1">Merchant</div>
+        <div className="w-32 text-center">Category</div>
+        <div className="w-14 text-right">Txns</div>
+        <div className="w-28 text-right">Total</div>
+      </div>
+
       <div className="divide-y divide-border">
         {rows.map((r, i) => {
           const catLabel = r.category ? (CAT_LABELS[r.category] ?? r.category) : "Other";
@@ -290,21 +298,21 @@ function MerchantTable({
           return (
             <div
               key={`${r.merchant}-${i}`}
-              className="flex items-center gap-3 px-5 py-3.5 hover:bg-muted/30 transition-colors"
+              className="flex items-center gap-4 px-5 py-4 hover:bg-muted/30 transition-colors"
             >
-              <MerchantFavicon name={r.merchant} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{r.merchant}</div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className={`pill ${catPill}`}>{catLabel}</span>
-                  <span className="text-xs text-secondary font-mono">
-                    {r.txnCount} {r.txnCount === 1 ? "txn" : "txns"}
-                  </span>
-                </div>
+              {/* Merchant + logo */}
+              <div className="flex-1 flex items-center gap-3 min-w-0">
+                <MerchantFavicon name={r.merchant} />
+                <span className="text-sm font-medium truncate">{r.merchant}</span>
               </div>
-              <div className="text-sm font-mono font-medium shrink-0">
-                {usd(r.totalActual, { decimals: 0 })}
+              {/* Category */}
+              <div className="w-32 flex justify-center shrink-0">
+                <span className={`pill ${catPill}`}>{catLabel}</span>
               </div>
+              {/* Txns */}
+              <div className="w-14 text-right font-mono text-sm text-secondary shrink-0">{r.txnCount}</div>
+              {/* Total */}
+              <div className="w-28 text-right font-mono text-sm font-medium shrink-0">{usd(r.totalActual, { decimals: 2 })}</div>
             </div>
           );
         })}
