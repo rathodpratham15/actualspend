@@ -23,7 +23,6 @@ import { computeSpendTimeline } from "@/lib/dashboard/spend-timeline";
 import { detectLikelyRent } from "@/lib/dashboard/detect-rent";
 
 import { AppHeader } from "@/components/app-header";
-import { DateRangePicker } from "@/components/date-range-picker";
 import { DashboardHero } from "@/components/dashboard-hero";
 import { SpendChartWrapper } from "@/components/spend-chart-wrapper";
 import { OnboardingBanner } from "@/components/onboarding-banner";
