@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { AppHeader } from "@/components/app-header";
 import { ProfileClient } from "@/components/profile-client";
+import { ProfileNotifications } from "@/components/profile-notifications";
 import { Users, ShieldCheck } from "lucide-react";
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -109,6 +110,9 @@ export default async function ProfilePage() {
             ))}
           </div>
         </div>
+
+        {/* Notifications */}
+        <ProfileNotifications />
 
         {/* Friends shortcut */}
         <div className="surface-card p-5">

@@ -1,9 +1,7 @@
 "use client";
 
-// Thin client wrapper that adds tab navigation + search to the reconcile page.
-// The actual section content is passed as React children (server-rendered).
-
-import { useState } from "react";
+import { useCallback, useTransition } from "react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
@@ -14,6 +12,7 @@ type Props = {
     splitwiseOnly: number;
     personal: number;
   };
+  query: string; // current search query from URL (?q=)
   awaitingContent: React.ReactNode;
   matchedContent: React.ReactNode;
   splitwiseContent: React.ReactNode;
@@ -22,22 +21,38 @@ type Props = {
 
 export function ReconcileTabs({
   counts,
+  query,
   awaitingContent,
   matchedContent,
   splitwiseContent,
   personalContent,
 }: Props) {
-  const [query, setQuery] = useState("");
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const [, startTransition] = useTransition();
+
+  const onSearch = useCallback(
+    (value: string) => {
+      const p = new URLSearchParams(params.toString());
+      if (value) p.set("q", value);
+      else p.delete("q");
+      startTransition(() => {
+        router.replace(`${pathname}?${p.toString()}`);
+      });
+    },
+    [router, pathname, params],
+  );
 
   return (
     <div className="mt-6 space-y-4">
-      {/* Search */}
+      {/* Search — filters server-side via ?q= URL param */}
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-secondary" strokeWidth={1.5} />
         <input
           type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          defaultValue={query}
+          onChange={(e) => onSearch(e.target.value)}
           placeholder="Search merchant or description…"
           className="w-full h-9 pl-8 pr-3 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-foreground/30"
           data-testid="recon-search"

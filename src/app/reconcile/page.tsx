@@ -250,17 +250,33 @@ function toPair(
   };
 }
 
-export default async function ReconcilePage() {
+export default async function ReconcilePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (!session?.user?.id) return null;
+
+  const sp = await searchParams;
+  const query = typeof sp.q === "string" ? sp.q.toLowerCase().trim() : "";
 
   const rows = await fetchRows(session.user.id);
   const participants = await fetchParticipantInfo(session.user.id, rows);
 
+  // Search helper — matches query against merchant name or SW description.
+  const matchesQuery = (r: Row) => {
+    if (!query) return true;
+    return (
+      (r.txnName ?? "").toLowerCase().includes(query) ||
+      (r.swDescription ?? "").toLowerCase().includes(query)
+    );
+  };
+
   const allAwaiting = rows.filter((r) => r.state === STATES.PENDING);
   // Split into plain 1:1 pending rows and N:M group rows.
-  const awaiting = allAwaiting.filter((r) => !r.nmGroupId);
-  const nmAwaiting = allAwaiting.filter((r) => !!r.nmGroupId);
+  const awaiting = allAwaiting.filter((r) => !r.nmGroupId && matchesQuery(r));
+  const nmAwaiting = allAwaiting.filter((r) => !!r.nmGroupId && matchesQuery(r));
   const matched = rows.filter(
     (r) =>
       r.state !== STATES.PENDING &&
@@ -269,17 +285,20 @@ export default async function ReconcilePage() {
         r.recType === RECONCILIATION_TYPES.REIMBURSEMENT_RECEIVED ||
         r.recType === RECONCILIATION_TYPES.REIMBURSEMENT_SENT) &&
       r.txnAmount !== null &&
-      r.swExpenseId !== null,
+      r.swExpenseId !== null &&
+      matchesQuery(r),
   );
   const splitwiseOnly = rows.filter(
     (r) =>
       r.recType === RECONCILIATION_TYPES.SPLITWISE_ONLY &&
-      r.state !== STATES.USER_REJECTED,
+      r.state !== STATES.USER_REJECTED &&
+      matchesQuery(r),
   );
   const personal = rows.filter(
     (r) =>
       r.recType === RECONCILIATION_TYPES.PERSONAL_EXPENSE &&
-      r.state !== STATES.USER_REJECTED,
+      r.state !== STATES.USER_REJECTED &&
+      matchesQuery(r),
   );
 
   // Group N:M pending rows into cards. Each group → one ReconNmCard.
@@ -488,6 +507,7 @@ export default async function ReconcilePage() {
         </div>
 
         <ReconcileTabs
+          query={query}
           counts={{ awaiting: awaiting.length + nmGroups.length, matched: matched.length, splitwiseOnly: splitwiseOnly.length, personal: personal.length }}
           awaitingContent={awaitingContent}
           matchedContent={matchedContent}

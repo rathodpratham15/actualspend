@@ -224,7 +224,7 @@ export default function WelcomePage() {
           <nav className="flex items-center gap-5">
             <Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link>
             <Link href="/security" className="hover:text-foreground transition-colors">Privacy</Link>
-            <Link href="/security" className="hover:text-foreground transition-colors">Security</Link>
+            <Link href="/login" className="hover:text-foreground transition-colors">Sign in</Link>
           </nav>
         </div>
       </footer>
