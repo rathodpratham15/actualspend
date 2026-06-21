@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { AppHeader } from "@/components/app-header";
@@ -8,18 +8,19 @@ import { Shield, Zap, RefreshCw, Moon, ArrowRight, Check, Sparkles } from "lucid
 
 function useCountUp(target: number, duration = 900) {
   const [val, setVal] = useState(0);
-  const [started, setStarted] = useState(false);
-  if (!started && target > 0) {
-    setStarted(true);
+  useEffect(() => {
+    if (target === 0) return;
+    let raf: number;
     const start = performance.now();
     const tick = (t: number) => {
       const p = Math.min(1, (t - start) / duration);
       const eased = 1 - Math.pow(1 - p, 3);
       setVal(target * eased);
-      if (p < 1) requestAnimationFrame(tick);
+      if (p < 1) raf = requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
-  }
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
   return val;
 }
 
@@ -92,7 +93,7 @@ export default function WelcomePage() {
             <div className="surface-card p-6 sm:p-8 max-w-2xl shadow-lift">
               <div className="text-[11px] uppercase tracking-wider text-secondary mb-2">Your actual spend · April</div>
               <div className="font-mono text-[44px] sm:text-[64px] leading-none text-emerald-accent tracking-tight">
-                ${Math.floor(heroNum).toLocaleString()}<span className="text-secondary/60">.{String(Math.round((heroNum % 1) * 100)).padStart(2, "0")}</span>
+                ${Math.floor(heroNum).toLocaleString()}<span className="text-emerald-accent/40">.{String(Math.round((heroNum % 1) * 100)).padStart(2, "0")}</span>
               </div>
               <div className="mt-5 grid grid-cols-3 gap-4 text-sm border-t border-border pt-4">
                 <div>
@@ -199,7 +200,7 @@ export default function WelcomePage() {
             <input
               type="email" required placeholder="you@neighborhood.nyc"
               value={email} onChange={(e) => setEmail(e.target.value)}
-              className="h-11 flex-1 px-4 rounded-md bg-background/95 text-foreground border-transparent text-sm placeholder:text-secondary focus:outline-none"
+              className="h-11 flex-1 px-4 rounded-md bg-background/95 text-foreground border-transparent text-sm placeholder:text-foreground/40 focus:outline-none"
               data-testid="waitlist-email"
             />
             <button type="submit" disabled={submitting}
