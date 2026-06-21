@@ -27,6 +27,7 @@ import { ReconNmCard, type NmBankTxn, type NmSwExpense } from "@/components/reco
 import { SubtractionBlock } from "@/components/subtraction-block";
 import { RunReconcileButton } from "@/components/run-reconcile-button";
 import { MarkSharedForm } from "@/components/mark-shared-form";
+import { ReconcileTabs } from "@/components/reconcile-tabs";
 
 type Row = {
   recId: string;
@@ -249,17 +250,33 @@ function toPair(
   };
 }
 
-export default async function ReconcilePage() {
+export default async function ReconcilePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (!session?.user?.id) return null;
+
+  const sp = await searchParams;
+  const query = typeof sp.q === "string" ? sp.q.toLowerCase().trim() : "";
 
   const rows = await fetchRows(session.user.id);
   const participants = await fetchParticipantInfo(session.user.id, rows);
 
+  // Search helper — matches query against merchant name or SW description.
+  const matchesQuery = (r: Row) => {
+    if (!query) return true;
+    return (
+      (r.txnName ?? "").toLowerCase().includes(query) ||
+      (r.swDescription ?? "").toLowerCase().includes(query)
+    );
+  };
+
   const allAwaiting = rows.filter((r) => r.state === STATES.PENDING);
   // Split into plain 1:1 pending rows and N:M group rows.
-  const awaiting = allAwaiting.filter((r) => !r.nmGroupId);
-  const nmAwaiting = allAwaiting.filter((r) => !!r.nmGroupId);
+  const awaiting = allAwaiting.filter((r) => !r.nmGroupId && matchesQuery(r));
+  const nmAwaiting = allAwaiting.filter((r) => !!r.nmGroupId && matchesQuery(r));
   const matched = rows.filter(
     (r) =>
       r.state !== STATES.PENDING &&
@@ -268,17 +285,20 @@ export default async function ReconcilePage() {
         r.recType === RECONCILIATION_TYPES.REIMBURSEMENT_RECEIVED ||
         r.recType === RECONCILIATION_TYPES.REIMBURSEMENT_SENT) &&
       r.txnAmount !== null &&
-      r.swExpenseId !== null,
+      r.swExpenseId !== null &&
+      matchesQuery(r),
   );
   const splitwiseOnly = rows.filter(
     (r) =>
       r.recType === RECONCILIATION_TYPES.SPLITWISE_ONLY &&
-      r.state !== STATES.USER_REJECTED,
+      r.state !== STATES.USER_REJECTED &&
+      matchesQuery(r),
   );
   const personal = rows.filter(
     (r) =>
       r.recType === RECONCILIATION_TYPES.PERSONAL_EXPENSE &&
-      r.state !== STATES.USER_REJECTED,
+      r.state !== STATES.USER_REJECTED &&
+      matchesQuery(r),
   );
 
   // Group N:M pending rows into cards. Each group → one ReconNmCard.
@@ -363,183 +383,137 @@ export default async function ReconcilePage() {
   );
   const sharedAdjustments = totalBank - totalActual;
 
+  // Build awaiting content
+  const awaitingContent = awaiting.length === 0 && nmGroups.length === 0 ? (
+    <div className="surface-card p-12 text-center text-sm text-secondary">Nothing to review. Nice.</div>
+  ) : (
+    <>
+      {nmGroups.map((g) => (
+        <ReconNmCard key={g.groupId} representativeId={g.representativeId} shape={g.shape}
+          bankTxns={g.bankTxns} swExpenses={g.swExpenses} totalActualAmount={g.totalActualAmount}
+          confidence={g.confidence} reasons={g.reasons} />
+      ))}
+      {awaiting.map((r) => <ReconAwaitingCard key={r.recId} pair={toPair(r, participants)} />)}
+    </>
+  );
+
+  // Build matched content
+  const matchedContent = matched.length === 0 ? (
+    <div className="surface-card p-12 text-center text-sm text-secondary">No matches yet.</div>
+  ) : (
+    <>
+      {matched.map((r) => (
+        <div key={r.recId} data-testid={`matched-${r.recId}`}
+          className="surface-card p-4 border-l-2 border-l-emerald-accent">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="pill pill-green text-[10px]">
+                  Auto-matched{r.confidence ? ` · ${Math.round(Number(r.confidence) * 100)}%` : ""}
+                </span>
+              </div>
+              <div className="text-sm font-medium truncate">{r.txnName ?? "(no description)"}</div>
+              <div className="text-xs text-secondary mt-0.5">{r.txnDate ? dateShort(r.txnDate) : "—"} · {r.swDescription ?? ""}</div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="font-mono text-sm">{usd(-Number(r.txnAmount ?? 0), { decimals: 2 })}</div>
+              <div className="text-xs text-emerald-accent font-mono mt-0.5">
+                −{usd(Number(r.swUserShare ?? 0), { decimals: 2 })} share
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+
+  // Build splitwise-only content
+  const splitwiseContent = splitwiseOnly.length === 0 ? (
+    <div className="surface-card p-12 text-center text-sm text-secondary">No Splitwise-only entries.</div>
+  ) : (
+    <>
+      {splitwiseOnly.map((r) => (
+        <div key={r.recId} data-testid={`splitwise-only-${r.recId}`} className="surface-card p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-[11px] uppercase tracking-wider text-secondary mb-1">Splitwise only</div>
+              <div className="text-sm font-medium truncate">{r.swDescription ?? "(no description)"}</div>
+              <div className="text-xs text-secondary mt-0.5">
+                {groupLabel(r.swExpenseId ? participants.get(r.swExpenseId) : undefined)}
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="font-mono text-sm">{usd(Number(r.swUserShare ?? 0), { decimals: 2 })}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+
+  // Build personal content
+  const personalContent = personal.length === 0 ? (
+    <div className="surface-card p-12 text-center text-sm text-secondary">No unmatched bank charges.</div>
+  ) : (
+    <>
+      {personal.map((r) => {
+        const bankAmt = Number(r.txnAmount ?? 0);
+        const actual = Number(r.actualAmount);
+        const overridden = r.state === "MANUAL_MATCH" && Math.abs(actual - bankAmt) > 0.005;
+        return (
+          <div key={r.recId} data-testid={`personal-${r.recId}`} className="surface-card p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="pill pill-muted">Personal</span>
+                </div>
+                <div className="text-sm font-medium truncate">{r.txnName ?? "(no description)"}</div>
+                <div className="text-xs text-secondary mt-0.5">{r.txnDate ? dateShort(r.txnDate) : "—"}</div>
+              </div>
+              <div className="text-right shrink-0 font-mono text-sm">
+                {overridden ? (
+                  <>
+                    <div>{usd(-actual, { decimals: 2 })}</div>
+                    <div className="text-xs text-secondary line-through">{usd(-bankAmt, { decimals: 2 })}</div>
+                  </>
+                ) : usd(-bankAmt, { decimals: 2 })}
+              </div>
+            </div>
+            <MarkSharedForm reconId={r.recId} defaultAmount={overridden ? actual : bankAmt} bankAmount={bankAmt} />
+          </div>
+        );
+      })}
+    </>
+  );
+
   return (
     <div className="min-h-screen bg-background">
       <AppHeader variant="app" />
-
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10 pb-24">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl tracking-tight font-medium">Review</h1>
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10 pb-24">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <div className="text-[11px] uppercase tracking-widest text-secondary">Reconciliation</div>
+            <h1 className="text-[22px] font-medium tracking-tight mt-1">Review your matches</h1>
+          </div>
           <RunReconcileButton />
         </div>
 
-        <div className="mt-8 bg-surface border border-border rounded-xl p-6">
+        {/* Summary card */}
+        <div className="mt-4 surface-card p-5">
           <SubtractionBlock
-            bank={totalBank}
-            shared={Math.max(0, sharedAdjustments)}
-            actual={totalActual}
-            bankLabel="Bank outflow (covered)"
-            sharedLabel="Shared adjustments"
-            actualLabel="Actual spend"
-            decimals={0}
+            bank={totalBank} shared={Math.max(0, sharedAdjustments)} actual={totalActual}
+            bankLabel="Bank outflow (covered)" sharedLabel="Shared adjustments" actualLabel="Actual spend" decimals={0}
           />
-          <div className="mt-6 text-sm text-secondary leading-relaxed">
-            {sharedAdjustments > 0
-              ? "Most of the difference comes from shared expenses you initially paid for."
-              : sharedAdjustments < 0
-                ? "You owe more than you've spent through this account — Splitwise sees expenses your bank doesn't."
-                : "Nothing pass-through detected in this period."}
-          </div>
         </div>
 
-        <ReconSection
-          title="Awaiting your review"
-          count={awaiting.length + nmGroups.length}
-          defaultOpen
-        >
-          {awaiting.length === 0 && nmGroups.length === 0 ? (
-            <p className="text-sm text-secondary">Nothing to review.</p>
-          ) : (
-            <>
-              {/* N:M cluster proposals — shown first since they require more attention */}
-              {nmGroups.map((g) => (
-                <ReconNmCard
-                  key={g.groupId}
-                  representativeId={g.representativeId}
-                  shape={g.shape}
-                  bankTxns={g.bankTxns}
-                  swExpenses={g.swExpenses}
-                  totalActualAmount={g.totalActualAmount}
-                  confidence={g.confidence}
-                  reasons={g.reasons}
-                />
-              ))}
-              {/* Standard 1:1 proposals */}
-              {awaiting.map((r) => (
-                <ReconAwaitingCard key={r.recId} pair={toPair(r, participants)} />
-              ))}
-            </>
-          )}
-        </ReconSection>
-
-        <ReconSection title="Matched automatically" count={matched.length}>
-          {matched.length === 0 ? (
-            <p className="text-sm text-secondary">No matches yet.</p>
-          ) : (
-            matched.map((r) => (
-              <div
-                key={r.recId}
-                data-testid={`matched-${r.recId}`}
-                className="bg-surface border border-border border-l-2 border-l-[var(--emerald)] rounded-xl p-4"
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <div className="text-xs font-mono text-secondary">
-                      {r.txnDate ? dateShort(r.txnDate) : "—"}
-                    </div>
-                    <div className="text-[15px]">
-                      {r.txnName ?? "(no description)"}
-                    </div>
-                    <div className="text-xs text-secondary mt-1">
-                      {r.swDescription ?? ""}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-mono text-sm">
-                      {usd(-Number(r.txnAmount ?? 0), { decimals: 2 })}
-                    </div>
-                    <div className="font-mono text-xs text-secondary mt-1">
-                      {r.confidence
-                        ? `${Math.round(Number(r.confidence) * 100)}%`
-                        : ""}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </ReconSection>
-
-        <ReconSection title="Splitwise-only" count={splitwiseOnly.length}>
-          {splitwiseOnly.length === 0 ? (
-            <p className="text-sm text-secondary">None.</p>
-          ) : (
-            splitwiseOnly.map((r) => (
-              <div
-                key={r.recId}
-                data-testid={`splitwise-only-${r.recId}`}
-                className="bg-surface border border-border border-l-2 border-l-[var(--border)] rounded-xl p-4"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-[15px]">
-                      {r.swDescription ?? "(no description)"}
-                    </div>
-                    <div className="text-xs text-secondary mt-1">
-                      {groupLabel(
-                        r.swExpenseId
-                          ? participants.get(r.swExpenseId)
-                          : undefined,
-                      )}
-                    </div>
-                  </div>
-                  <div className="font-mono text-sm">
-                    {usd(Number(r.swUserShare ?? 0), { decimals: 2 })}
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </ReconSection>
-
-        <ReconSection title="Personal / unmatched" count={personal.length}>
-          {personal.length === 0 ? (
-            <p className="text-sm text-secondary">None.</p>
-          ) : (
-            personal.map((r) => {
-              const bankAmt = Number(r.txnAmount ?? 0);
-              const actual = Number(r.actualAmount);
-              const overridden =
-                r.state === "MANUAL_MATCH" &&
-                Math.abs(actual - bankAmt) > 0.005;
-              return (
-                <div
-                  key={r.recId}
-                  data-testid={`personal-${r.recId}`}
-                  className="bg-surface border border-border rounded-xl p-4"
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <div className="text-xs font-mono text-secondary">
-                        {r.txnDate ? dateShort(r.txnDate) : "—"}
-                      </div>
-                      <div className="text-[15px]">
-                        {r.txnName ?? "(no description)"}
-                      </div>
-                    </div>
-                    <div className="text-right font-mono text-sm">
-                      {overridden ? (
-                        <>
-                          <div>{usd(-actual, { decimals: 2 })}</div>
-                          <div className="text-xs text-secondary line-through">
-                            {usd(-bankAmt, { decimals: 2 })}
-                          </div>
-                        </>
-                      ) : (
-                        usd(-bankAmt, { decimals: 2 })
-                      )}
-                    </div>
-                  </div>
-                  <MarkSharedForm
-                    reconId={r.recId}
-                    defaultAmount={overridden ? actual : bankAmt}
-                    bankAmount={bankAmt}
-                  />
-                </div>
-              );
-            })
-          )}
-        </ReconSection>
+        <ReconcileTabs
+          query={query}
+          counts={{ awaiting: awaiting.length + nmGroups.length, matched: matched.length, splitwiseOnly: splitwiseOnly.length, personal: personal.length }}
+          awaitingContent={awaitingContent}
+          matchedContent={matchedContent}
+          splitwiseContent={splitwiseContent}
+          personalContent={personalContent}
+        />
       </main>
     </div>
   );

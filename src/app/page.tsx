@@ -23,12 +23,14 @@ import { computeSpendTimeline } from "@/lib/dashboard/spend-timeline";
 import { detectLikelyRent } from "@/lib/dashboard/detect-rent";
 
 import { AppHeader } from "@/components/app-header";
-import { DateRangePicker } from "@/components/date-range-picker";
 import { DashboardHero } from "@/components/dashboard-hero";
 import { SpendChartWrapper } from "@/components/spend-chart-wrapper";
 import { OnboardingBanner } from "@/components/onboarding-banner";
 import { RoommateModal } from "@/components/roommate-modal";
+import { TimeRangePicker } from "@/components/time-range-picker";
 import { Suspense } from "react";
+import { Home, ShoppingBasket, Zap, UtensilsCrossed, Bus, Package, ShoppingBag, Plane, Heart, BookOpen, Check, Clock, X } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 const CATEGORY_LABEL: Record<string, string> = {
   GROCERIES: "Groceries",
@@ -152,15 +154,16 @@ export default async function DashboardPage({
         </div>
       )}
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-24">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
-          <div
-            className="text-sm text-secondary font-mono truncate"
-            data-testid="user-email"
-          >
-            {user.email}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-24">
+        {/* Header row */}
+        <div className="flex flex-wrap items-end justify-between gap-3 mb-6 sm:mb-8">
+          <div>
+            <div className="text-xs uppercase tracking-widest text-secondary">Overview</div>
+            <h1 className="text-[26px] font-medium tracking-tight mt-1">Your spend, reconciled.</h1>
           </div>
-          <DateRangePicker from={period.from} to={period.to} />
+          <Suspense>
+            <TimeRangePicker from={period.from} to={period.to} />
+          </Suspense>
         </div>
 
         <DashboardHero
@@ -168,26 +171,46 @@ export default async function DashboardPage({
           periodLabel={periodLabel(period)}
         />
 
-        <Link
-          href="/reconcile"
-          data-testid="recon-strip"
-          className="mt-4 block bg-surface border border-border rounded-xl px-5 py-3 text-sm hover:bg-secondary/40 transition-colors"
-        >
-          <span className="font-mono">{counts.matched}</span> matched ·{" "}
-          <span
-            className={`font-mono ${counts.awaiting > 0 ? "text-amber-accent" : ""}`}
-          >
-            {counts.awaiting}
-          </span>{" "}
-          awaiting your review ·{" "}
-          <span className="font-mono">{counts.splitwiseOnly}</span>{" "}
-          Splitwise-only ·{" "}
-          <span className="font-mono">{counts.personal}</span> personal
-        </Link>
-
         {showBanner && <OnboardingBanner detectedRent={detectedRent} />}
 
-        <SpendChartWrapper data={timeline} />
+        {/* Chart + Reconciliation status — side by side on lg */}
+        <div className="mt-4 grid lg:grid-cols-[1fr_300px] gap-4">
+          <SpendChartWrapper data={timeline} />
+
+          {/* Reconciliation status panel */}
+          <div className="surface-card p-5" data-testid="recon-strip">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="text-sm font-medium">Reconciliation</div>
+                <div className="text-xs text-secondary">All-time status</div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-md bg-success-soft">
+                <span className="flex items-center gap-2 text-sm text-success">
+                  <Check className="h-3.5 w-3.5" strokeWidth={2} /> Matched
+                </span>
+                <span className="font-mono text-sm text-success" data-testid="count-matched">{counts.matched}</span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-md bg-amber-soft">
+                <span className="flex items-center gap-2 text-sm text-amber-accent">
+                  <Clock className="h-3.5 w-3.5" strokeWidth={2} /> Awaiting review
+                </span>
+                <span className="font-mono text-sm text-amber-accent" data-testid="count-awaiting">{counts.awaiting}</span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-md bg-destructive-soft">
+                <span className="flex items-center gap-2 text-sm text-destructive">
+                  <X className="h-3.5 w-3.5" strokeWidth={2} /> Unmatched
+                </span>
+                <span className="font-mono text-sm text-destructive">{counts.personal}</span>
+              </div>
+            </div>
+            <Link href="/reconcile" className="mt-4 inline-flex items-center gap-1 text-sm text-emerald-accent hover:underline underline-offset-4">
+              Review transactions <span>›</span>
+            </Link>
+          </div>
+        </div>
+
         <CategorySection rows={categoryRows} />
 
         {/* Roommate modal — shown once after Splitwise OAuth (?sw=connected) */}
@@ -213,123 +236,87 @@ function fmtTxnDate(iso: string): string {
   });
 }
 
+const CATEGORY_ICON: Record<string, React.ElementType> = {
+  RENT: Home, GROCERIES: ShoppingBasket, UTILITIES: Zap,
+  EATING_OUT: UtensilsCrossed, TRANSPORT: Bus, SHOPPING: ShoppingBag,
+  TRAVEL: Plane, HEALTH: Heart, EDUCATION: BookOpen,
+};
+
 function CategorySection({ rows }: { rows: CategoryBreakdown[] }) {
   if (rows.length === 0) return null;
   const max = rows[0]?.total ?? 0;
 
+  const totalAll = rows.reduce((s, r) => s + r.total, 0);
+
   return (
-    <section className="mt-10">
-      <div className="text-[11px] uppercase tracking-widest text-secondary mb-6">
-        Where it went
+    <section className="mt-4 surface-card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <div className="text-sm font-medium">Categories</div>
+          <div className="text-xs text-secondary">After reconciliation</div>
+        </div>
+        <Link href="/merchants" className="text-xs text-emerald-accent hover:underline underline-offset-4">
+          View merchants
+        </Link>
       </div>
-      <div className="space-y-4">
+
+      <Accordion type="single" collapsible className="w-full">
         {rows.map((r) => {
-          const label = r.category
-            ? (CATEGORY_LABEL[r.category] ?? r.category)
-            : "Uncategorized";
-          const pct = max > 0 ? (r.total / max) * 100 : 0;
+          const label = r.category ? (CATEGORY_LABEL[r.category] ?? r.category) : "Uncategorized";
+          const pct = totalAll > 0 ? Math.round((r.total / totalAll) * 100) : 0;
+          const Icon = (r.category && CATEGORY_ICON[r.category]) ? CATEGORY_ICON[r.category] : Package;
           return (
-            <details
-              key={r.category ?? "null"}
-              data-testid={`cat-${(r.category ?? "uncategorized").toLowerCase()}`}
-              className="group"
-            >
-              <summary className="cursor-pointer list-none">
-                <div className="flex items-baseline justify-between text-[15px]">
-                  <span className="flex items-baseline gap-2">
-                    <span className="text-secondary text-xs transition-transform group-open:rotate-90 inline-block">
-                      ›
-                    </span>
-                    <span>{label}</span>
-                    <span className="text-xs text-secondary font-mono">
-                      {r.count} txn{r.count === 1 ? "" : "s"}
-                    </span>
+            <AccordionItem key={r.category ?? "null"} value={r.category ?? "null"}
+              className="border-border" data-testid={`cat-${(r.category ?? "uncategorized").toLowerCase()}`}>
+              <AccordionTrigger className="hover:no-underline py-3 group">
+                <div className="flex items-center gap-4 w-full pr-4">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-muted text-foreground shrink-0">
+                    <Icon className="h-4 w-4" strokeWidth={1.5} />
                   </span>
-                  <span className="font-mono">
-                    $
-                    {r.total.toLocaleString("en-US", {
-                      maximumFractionDigits: 0,
-                    })}
-                  </span>
+                  <div className="flex-1 text-left min-w-0">
+                    <div className="text-sm font-medium">{label}</div>
+                    <div className="mt-1.5 h-1 bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-accent/70 rounded-full" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                  <div className="text-right tabular shrink-0">
+                    <div className="font-mono text-sm">${r.total.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+                    <div className="text-[11px] text-secondary">{pct}%</div>
+                  </div>
                 </div>
-                <div className="mt-2 h-px bg-border w-full relative">
-                  <div
-                    className="absolute left-0 top-0 h-px bg-foreground transition-all"
-                    style={{ width: `${pct.toFixed(1)}%` }}
-                  />
-                </div>
-              </summary>
-              <ul className="mt-3 pl-5 space-y-1.5 text-sm">
-                {r.txns.map((t) => {
-                  const bankLabel = t.merchantName || t.name;
-                  // When a Splitwise match named the actual store (e.g.
-                  // "Apne Bazaar" for "IC* INSTACART"), show that as the
-                  // primary label and keep the raw bank text as a smaller
-                  // subtitle so the user can still recognize the charge.
-                  const primary = t.swDescription || bankLabel;
-                  const subtitle =
-                    t.swDescription && t.swDescription !== bankLabel
-                      ? bankLabel
-                      : null;
-                  // Show the reconciled share when it's actually smaller
-                  // than the bank charge (i.e. roommates owe back some of
-                  // this). Bank charge becomes a faded strikethrough so the
-                  // user can tie it back to their statement.
-                  const shared =
-                    t.actualAmount > 0 &&
-                    t.actualAmount < t.amount - 0.005;
-                  return (
-                    <li
-                      key={t.id}
-                      className="flex items-baseline justify-between gap-2"
-                    >
-                      <span className="flex items-baseline gap-2 min-w-0">
-                        <span className="text-xs text-secondary font-mono shrink-0">
-                          {fmtTxnDate(t.date)}
-                        </span>
-                        <span className="truncate">
-                          {primary}
-                          {subtitle && (
-                            <span className="ml-2 text-xs text-secondary">
-                              ({subtitle})
-                            </span>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="pl-12 pr-2 space-y-2 pb-2">
+                  {r.txns.slice(0, 8).map((t) => {
+                    const bankLabel = t.merchantName || t.name;
+                    const primary = t.swDescription || bankLabel;
+                    const shared = t.actualAmount > 0 && t.actualAmount < t.amount - 0.005;
+                    return (
+                      <div key={t.id} className="flex items-center justify-between text-sm py-1.5 border-b border-border/60 last:border-0">
+                        <div className="flex-1 min-w-0">
+                          <div className="truncate">{primary}</div>
+                          <div className="text-[11px] text-secondary">{fmtTxnDate(t.date)}</div>
+                        </div>
+                        <div className="text-right font-mono text-xs ml-3">
+                          ${t.actualAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {shared && (
+                            <div className="text-secondary line-through">
+                              ${t.amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
                           )}
-                        </span>
-                      </span>
-                      <span className="font-mono text-xs">
-                        {shared ? (
-                          <>
-                            $
-                            {t.actualAmount.toLocaleString("en-US", {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                            <span className="ml-1.5 text-secondary line-through">
-                              $
-                              {t.amount.toLocaleString("en-US", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            $
-                            {t.amount.toLocaleString("en-US", {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </>
-                        )}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </details>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {r.txns.length > 8 && (
+                    <div className="text-xs text-secondary pt-1">+{r.txns.length - 8} more</div>
+                  )}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
           );
         })}
-      </div>
+      </Accordion>
     </section>
   );
 }

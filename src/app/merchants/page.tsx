@@ -5,9 +5,31 @@ import { reconciliations, transactions } from "@/lib/db/schema";
 import { RECONCILIATION_TYPES, STATES } from "@/lib/reconciliation/types";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { AppHeader } from "@/components/app-header";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { MerchantTxnTooltip } from "@/components/merchant-txn-tooltip";
 import { MonthPicker } from "@/components/month-picker";
 import { PaginationControls } from "@/components/pagination-controls";
-import { usd, dateShort } from "@/lib/format";
+import { SortSelect } from "@/components/sort-select";
+
+const SORT_OPTIONS_M = [
+  { value: "total_desc", label: "Spend (high → low)" },
+  { value: "total_asc",  label: "Spend (low → high)" },
+  { value: "txns_desc",  label: "Transactions (most)" },
+  { value: "name",       label: "Name (A → Z)" },
+];
+import { MerchantFavicon } from "@/components/merchant-favicon";
+import { usd } from "@/lib/format";
+
+const CAT_LABELS: Record<string, string> = {
+  GROCERIES: "Groceries", RENT: "Rent", UTILITIES: "Utilities",
+  TRANSPORT: "Transport", EATING_OUT: "Dining", SUBSCRIPTION: "Subscriptions",
+  SHOPPING: "Shopping", TRAVEL: "Travel", HEALTH: "Health",
+  ENTERTAINMENT: "Entertainment", EDUCATION: "Education", OTHER: "Other",
+};
+const CAT_PILL: Record<string, string> = {
+  GROCERIES: "pill-teal", RENT: "pill-teal", EATING_OUT: "pill-amber",
+  TRANSPORT: "pill-muted", UTILITIES: "pill-muted", SUBSCRIPTION: "pill-muted",
+};
 
 const PAGE_SIZE = 10;
 
@@ -29,6 +51,11 @@ function parseYearMonth(raw: string | undefined): string {
 function parsePage(raw: string | undefined): number {
   const n = parseInt(raw ?? "1", 10);
   return isNaN(n) || n < 1 ? 1 : n;
+}
+
+function parseSort(raw: string | undefined): string {
+  const valid = SORT_OPTIONS_M.map((o) => o.value);
+  return valid.includes(raw ?? "") ? (raw as string) : "total_desc";
 }
 
 function monthLabel(ym: string): string {
@@ -54,15 +81,25 @@ function monthDateRange(yearMonth: string) {
 type MerchantRow = {
   merchant: string;
   channel: string | null;
+  category: string | null;
   totalActual: number;
   txnCount: number;
   lastSeen: string;
+  txnDates: { date: string; amount: number }[]; // up to 5 most recent
+};
+
+type ChannelTxn = {
+  merchant: string;
+  date: string;
+  actualAmount: number;
+  bankAmount: number;
 };
 
 type ChannelRow = {
   channel: string;
   totalActual: number;
   txnCount: number;
+  txns: ChannelTxn[];
 };
 
 const BASE_WHERE = (userId: string) =>
@@ -83,6 +120,7 @@ async function fetchMerchants(
   userId: string,
   yearMonth: string,
   page: number,
+  sort = "total_desc",
 ): Promise<{ rows: MerchantRow[]; total: number; grandTotal: number; globalMax: number }> {
   const { from, to } = monthDateRange(yearMonth);
 
@@ -113,6 +151,7 @@ async function fetchMerchants(
     .select({
       merchant: sql<string>`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
       channel: transactions.channel,
+      category: sql<string>`MODE() WITHIN GROUP (ORDER BY ${transactions.canonicalCategory})`,
       totalActual: sql<number>`SUM(${reconciliations.actualAmount}::numeric)`,
       txnCount: sql<number>`COUNT(DISTINCT ${reconciliations.id})::int`,
       lastSeen: sql<string>`MAX(${transactions.date})`,
@@ -124,17 +163,44 @@ async function fetchMerchants(
       sql`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
       transactions.channel,
     )
-    .orderBy(sql`SUM(${reconciliations.actualAmount}::numeric) DESC`)
+    .orderBy(
+      sort === "total_asc"  ? sql`SUM(${reconciliations.actualAmount}::numeric) ASC` :
+      sort === "txns_desc"  ? sql`COUNT(DISTINCT ${reconciliations.id}) DESC` :
+      sort === "name"       ? sql`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name}) ASC` :
+                              sql`SUM(${reconciliations.actualAmount}::numeric) DESC`
+    )
     .limit(PAGE_SIZE)
     .offset((page - 1) * PAGE_SIZE);
+
+  // Fetch all txn dates for the month, group by merchant in memory.
+  // Used for the hover tooltip on multi-txn rows.
+  const allTxnDates = await db
+    .select({
+      merchant: sql<string>`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
+      date: transactions.date,
+      amount: reconciliations.actualAmount,
+    })
+    .from(reconciliations)
+    .innerJoin(transactions, eq(transactions.id, reconciliations.transactionId))
+    .where(and(BASE_WHERE(userId), dateFilter))
+    .orderBy(sql`${transactions.date} DESC`);
+
+  const datesByMerchant = new Map<string, { date: string; amount: number }[]>();
+  for (const t of allTxnDates) {
+    const arr = datesByMerchant.get(t.merchant) ?? [];
+    arr.push({ date: t.date, amount: Number(t.amount) });
+    datesByMerchant.set(t.merchant, arr);
+  }
 
   return {
     rows: rows.map((r) => ({
       merchant: r.merchant,
       channel: r.channel,
+      category: r.category ?? null,
       totalActual: Number(r.totalActual ?? 0),
       txnCount: Number(r.txnCount ?? 0),
       lastSeen: r.lastSeen ?? "",
+      txnDates: (datesByMerchant.get(r.merchant) ?? []).slice(0, 5),
     })),
     total,
     grandTotal,
@@ -145,7 +211,14 @@ async function fetchMerchants(
 async function fetchChannels(userId: string, yearMonth: string): Promise<ChannelRow[]> {
   const { from, to } = monthDateRange(yearMonth);
 
-  const rows = await db
+  const dateFilter = and(
+    sql`${transactions.channel} IS NOT NULL`,
+    sql`${transactions.date} >= ${from}`,
+    sql`${transactions.date} <= ${to}`,
+  );
+
+  // Aggregate per channel
+  const agg = await db
     .select({
       channel: transactions.channel,
       totalActual: sql<number>`SUM(${reconciliations.actualAmount}::numeric)`,
@@ -153,23 +226,45 @@ async function fetchChannels(userId: string, yearMonth: string): Promise<Channel
     })
     .from(reconciliations)
     .innerJoin(transactions, eq(transactions.id, reconciliations.transactionId))
-    .where(
-      and(
-        BASE_WHERE(userId),
-        sql`${transactions.channel} IS NOT NULL`,
-        sql`${transactions.date} >= ${from}`,
-        sql`${transactions.date} <= ${to}`,
-      ),
-    )
+    .where(and(BASE_WHERE(userId), dateFilter))
     .groupBy(transactions.channel)
     .orderBy(sql`SUM(${reconciliations.actualAmount}::numeric) DESC`);
 
-  return rows
+  // Individual transactions per channel
+  const txnRows = await db
+    .select({
+      channel: transactions.channel,
+      merchant: sql<string>`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
+      date: transactions.date,
+      actualAmount: reconciliations.actualAmount,
+      bankAmount: transactions.amount,
+    })
+    .from(reconciliations)
+    .innerJoin(transactions, eq(transactions.id, reconciliations.transactionId))
+    .where(and(BASE_WHERE(userId), dateFilter))
+    .orderBy(sql`${transactions.date} DESC`);
+
+  // Group txns by channel
+  const txnsByChannel = new Map<string, ChannelTxn[]>();
+  for (const t of txnRows) {
+    if (!t.channel) continue;
+    const arr = txnsByChannel.get(t.channel) ?? [];
+    arr.push({
+      merchant: t.merchant,
+      date: t.date,
+      actualAmount: Number(t.actualAmount),
+      bankAmount: Number(t.bankAmount),
+    });
+    txnsByChannel.set(t.channel, arr);
+  }
+
+  return agg
     .filter((r): r is typeof r & { channel: string } => !!r.channel)
     .map((r) => ({
       channel: r.channel,
       totalActual: Number(r.totalActual ?? 0),
       txnCount: Number(r.txnCount ?? 0),
+      txns: txnsByChannel.get(r.channel) ?? [],
     }));
 }
 
@@ -188,9 +283,10 @@ export default async function MerchantsPage({
   const params = await searchParams;
   const yearMonth = parseYearMonth(params.m as string | undefined);
   const page = parsePage(params.page as string | undefined);
+  const sort = parseSort(params.sort as string | undefined);
 
   const [{ rows: merchants, total, grandTotal, globalMax }, channels] = await Promise.all([
-    fetchMerchants(session.user.id, yearMonth, page),
+    fetchMerchants(session.user.id, yearMonth, page, sort),
     fetchChannels(session.user.id, yearMonth),
   ]);
 
@@ -203,22 +299,22 @@ export default async function MerchantsPage({
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10 pb-24">
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-xl tracking-tight font-medium">Merchants</h1>
-            <p className="mt-0.5 text-sm text-secondary">
-              Ranked by actual spend — your share only.
-            </p>
+            <div className="text-[11px] uppercase tracking-widest text-secondary">Merchants</div>
+            <h1 className="text-[22px] font-medium tracking-tight mt-1">Monthly spend by merchant</h1>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Suspense><SortSelect options={SORT_OPTIONS_M} current={sort} /></Suspense>
+            <div className="surface-card px-1 py-1 rounded-md">
+              <Suspense><MonthPicker yearMonth={yearMonth} /></Suspense>
+            </div>
             {grandTotal > 0 && (
-              <span className="text-sm font-mono text-secondary">
-                {usd(grandTotal, { decimals: 0 })} total
-              </span>
+              <div className="text-right">
+                <div className="text-[11px] uppercase tracking-widest text-secondary">Total</div>
+                <div className="font-mono text-[18px]">{usd(grandTotal, { decimals: 0 })}</div>
+              </div>
             )}
-            <Suspense>
-              <MonthPicker yearMonth={yearMonth} />
-            </Suspense>
           </div>
         </div>
 
@@ -257,7 +353,6 @@ export default async function MerchantsPage({
 
 function MerchantTable({
   rows,
-  globalMax,
   page,
   totalPages,
   total,
@@ -268,121 +363,121 @@ function MerchantTable({
   totalPages: number;
   total: number;
 }) {
-  const offset = (page - 1) * PAGE_SIZE;
-
   return (
-    <div className="bg-surface border border-border rounded-xl overflow-hidden">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border">
-            <th className="px-4 py-2.5 text-left text-[11px] uppercase tracking-widest text-secondary font-normal w-8">
-              #
-            </th>
-            <th className="px-3 py-2.5 text-left text-[11px] uppercase tracking-widest text-secondary font-normal">
-              Merchant
-            </th>
-            <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-widest text-secondary font-normal hidden sm:table-cell">
-              Txns
-            </th>
-            <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-widest text-secondary font-normal hidden sm:table-cell">
-              Last
-            </th>
-            <th className="px-4 py-2.5 text-right text-[11px] uppercase tracking-widest text-secondary font-normal">
-              Actual
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {rows.map((r, i) => {
-            const barPct = globalMax > 0 ? (r.totalActual / globalMax) * 100 : 0;
-            return (
-              <tr key={`${r.merchant}-${i}`} className="hover:bg-background/50 transition-colors">
-                <td className="px-4 py-3 font-mono text-xs text-secondary text-right align-top pt-4">
-                  {offset + i + 1}
-                </td>
-                <td className="px-3 py-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="truncate">{r.merchant}</span>
-                    {r.channel && (
-                      <span className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded bg-border/60 text-secondary hidden sm:inline">
-                        {r.channel}
-                      </span>
-                    )}
-                  </div>
-                  {/* Relative spend bar */}
-                  <div className="mt-1.5 h-1 bg-border rounded-full overflow-hidden w-full">
-                    <div
-                      className="h-full bg-foreground/40 rounded-full"
-                      style={{ width: `${barPct.toFixed(1)}%` }}
-                    />
-                  </div>
-                </td>
-                <td className="px-3 py-3 text-right font-mono text-xs text-secondary hidden sm:table-cell">
+    <div className="surface-card overflow-hidden">
+      {/* Header row */}
+      <div className="flex items-center gap-4 px-5 py-3 text-[11px] uppercase tracking-widest text-secondary border-b border-border bg-background/50">
+        <div className="flex-1">Merchant</div>
+        <div className="w-32 text-center">Category</div>
+        <div className="w-14 text-right">Txns</div>
+        <div className="w-28 text-right">Total</div>
+      </div>
+
+      <div className="divide-y divide-border">
+        {rows.map((r, i) => {
+          const catLabel = r.category ? (CAT_LABELS[r.category] ?? r.category) : "Other";
+          const catPill = r.category ? (CAT_PILL[r.category] ?? "pill-muted") : "pill-muted";
+          return (
+            <div
+              key={`${r.merchant}-${i}`}
+              className="flex items-center gap-4 px-5 py-4 hover:bg-muted/30 transition-colors"
+            >
+              {/* Merchant + logo */}
+              <div className="flex-1 flex items-center gap-3 min-w-0">
+                <MerchantFavicon name={r.merchant} />
+                <span className="text-sm font-medium truncate">{r.merchant}</span>
+              </div>
+              {/* Category */}
+              <div className="w-32 flex justify-center shrink-0">
+                <span className={`pill ${catPill}`}>{catLabel}</span>
+              </div>
+              {/* Txns — tooltip shows dates on hover when > 1 */}
+              <MerchantTxnTooltip txnCount={r.txnCount} txnDates={r.txnDates}>
+                <div className={`w-14 text-right font-mono text-sm shrink-0 ${r.txnCount > 1 ? "text-foreground cursor-default underline decoration-dotted underline-offset-4" : "text-secondary"}`}>
                   {r.txnCount}
-                </td>
-                <td className="px-3 py-3 text-right font-mono text-xs text-secondary hidden sm:table-cell">
-                  {r.lastSeen ? dateShort(r.lastSeen) : "—"}
-                </td>
-                <td className="px-4 py-3 text-right font-mono text-sm">
-                  {usd(r.totalActual, { decimals: 0 })}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <Suspense>
-        <PaginationControls
-          page={page}
-          totalPages={totalPages}
-          totalRows={total}
-          pageSize={PAGE_SIZE}
-        />
-      </Suspense>
+                </div>
+              </MerchantTxnTooltip>
+              {/* Total */}
+              <div className="w-28 text-right font-mono text-sm font-medium shrink-0">{usd(r.totalActual, { decimals: 2 })}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex items-center justify-between px-5 py-3 border-t border-border text-xs text-secondary">
+        <div>Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}</div>
+        <Suspense>
+          <PaginationControls page={page} totalPages={totalPages} totalRows={total} pageSize={PAGE_SIZE} />
+        </Suspense>
+      </div>
     </div>
   );
 }
 
 function ChannelTable({ rows }: { rows: ChannelRow[] }) {
-  const total = rows.reduce((s, r) => s + r.totalActual, 0);
+  const grandTotal = rows.reduce((s, r) => s + r.totalActual, 0);
   const max = rows[0]?.totalActual ?? 1;
 
   return (
     <div className="bg-surface border border-border rounded-xl overflow-hidden">
       <div className="px-4 py-2.5 border-b border-border">
-        <span className="text-[11px] uppercase tracking-widest text-secondary">
-          By channel
-        </span>
+        <span className="text-[11px] uppercase tracking-widest text-secondary">By channel</span>
       </div>
-      <div className="divide-y divide-border">
+
+      <Accordion type="single" collapsible className="divide-y divide-border">
         {rows.map((r) => {
           const barPct = max > 0 ? (r.totalActual / max) * 100 : 0;
           return (
-            <div key={r.channel} className="px-4 py-3 hover:bg-background/50 transition-colors">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm">{r.channel}</span>
-                <div className="text-right shrink-0">
-                  <div className="font-mono text-sm">{usd(r.totalActual, { decimals: 0 })}</div>
-                  <div className="text-[11px] text-secondary font-mono">
-                    {r.txnCount} txn{r.txnCount !== 1 ? "s" : ""}
+            <AccordionItem key={r.channel} value={r.channel} className="border-0">
+              <AccordionTrigger className="px-4 py-3 hover:bg-background/50 hover:no-underline [&>svg]:shrink-0">
+                <div className="flex-1 mr-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium">{r.channel}</span>
+                    <div className="text-right shrink-0">
+                      <div className="font-mono text-sm">{usd(r.totalActual, { decimals: 0 })}</div>
+                      <div className="text-[11px] text-secondary font-mono">
+                        {r.txnCount} txn{r.txnCount !== 1 ? "s" : ""}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 h-1.5 bg-border rounded-full overflow-hidden">
+                    <div className="h-full bg-foreground/50 rounded-full" style={{ width: `${barPct.toFixed(1)}%` }} />
+                  </div>
+                  <div className="mt-1 text-[10px] text-secondary font-mono text-left">
+                    {grandTotal > 0 ? ((r.totalActual / grandTotal) * 100).toFixed(0) : 0}% of channel spend
                   </div>
                 </div>
-              </div>
-              {/* Bar */}
-              <div className="mt-2 h-1.5 bg-border rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-foreground/50 rounded-full"
-                  style={{ width: `${barPct.toFixed(1)}%` }}
-                />
-              </div>
-              {/* % of channel total */}
-              <div className="mt-1 text-[10px] text-secondary font-mono">
-                {total > 0 ? ((r.totalActual / total) * 100).toFixed(0) : 0}% of channel spend
-              </div>
-            </div>
+              </AccordionTrigger>
+
+              <AccordionContent>
+                <div className="px-4 pb-3 space-y-0">
+                  {/* Sub-header */}
+                  <div className="flex items-center justify-between py-1.5 border-b border-border mb-1 text-[10px] uppercase tracking-widest text-secondary">
+                    <span>Merchant</span>
+                    <div className="flex gap-6">
+                      <span>Date</span>
+                      <span className="w-20 text-right">Actual</span>
+                    </div>
+                  </div>
+                  {r.txns.map((t, i) => (
+                    <div key={i} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0 text-sm">
+                      <span className="truncate mr-3 text-secondary">{t.merchant}</span>
+                      <div className="flex items-center gap-6 shrink-0">
+                        <span className="text-xs text-secondary font-mono">
+                          {new Date(t.date).toLocaleDateString("en-US", { month: "short", day: "2-digit" })}
+                        </span>
+                        <span className="font-mono text-xs w-20 text-right">
+                          {usd(t.actualAmount, { decimals: 2 })}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
           );
         })}
-      </div>
+      </Accordion>
     </div>
   );
 }

@@ -8,8 +8,8 @@ import { ThemeToggle } from "./theme-toggle";
 import { UserMenu } from "./user-menu";
 
 const navItem =
-  "text-sm text-secondary hover:text-foreground transition-colors px-2 py-1 rounded";
-const navItemActive = "text-foreground";
+  "text-[14px] text-secondary hover:text-foreground transition-colors px-3 py-1.5 rounded-md";
+const navItemActive = "bg-primary-soft text-emerald-accent";
 
 type Variant = "app" | "marketing";
 
@@ -52,14 +52,17 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
       <NavLink href="/" exact testid="nav-dashboard" onClick={close}>
         Dashboard
       </NavLink>
-      <NavLink href="/accounts" testid="nav-accounts" onClick={close}>
-        Accounts
-      </NavLink>
-      <NavLink href="/reconcile" testid="nav-review" onClick={close}>
-        Review
+      <NavLink href="/reconcile" testid="nav-reconcile" onClick={close}>
+        Reconcile
       </NavLink>
       <NavLink href="/merchants" testid="nav-merchants" onClick={close}>
         Merchants
+      </NavLink>
+      <NavLink href="/accounts" testid="nav-accounts" onClick={close}>
+        Accounts
+      </NavLink>
+      <NavLink href="/friends" testid="nav-friends" onClick={close}>
+        Friends
       </NavLink>
     </>
   );
@@ -73,45 +76,36 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
     </>
   );
 
-  // Desktop marketing nav — Sign in is the primary CTA, inverse-colored
-  // for emphasis.
+  // Desktop marketing nav — "Sign in" ghost + "Get started" primary.
   const marketingLinksDesktop = (
     <>
-      <NavLink href="/security" testid="nav-privacy" onClick={close}>
-        Privacy
-      </NavLink>
       {!onLoginPage && (
-        <Link
-          href="/login"
-          data-testid="nav-login"
-          onClick={close}
-          className="inline-flex items-center h-9 px-4 rounded-md bg-foreground text-background text-sm hover:opacity-90 transition-opacity"
-        >
-          Sign in
-        </Link>
+        <>
+          <Link href="/login" data-testid="nav-login" onClick={close}
+            className="inline-flex items-center h-9 px-3 rounded-md text-sm text-secondary hover:text-foreground transition-colors">
+            Sign in
+          </Link>
+          <Link href="/register" data-testid="nav-register" onClick={close}
+            className="inline-flex items-center h-9 px-4 rounded-md bg-foreground text-background text-sm hover:opacity-90 transition-opacity">
+            Get started
+          </Link>
+        </>
       )}
     </>
   );
 
-  // Mobile drawer marketing nav — Sign in is rendered as a plain text link
-  // matching the other items in the drawer. The desktop nav keeps the
-  // boxed inverse CTA; in the drawer that styling reads as an "active
-  // page" indicator and misleads users into thinking they're on the
-  // Sign-in page.
   const marketingLinksMobile = (
     <>
-      <NavLink href="/security" testid="nav-privacy" onClick={close}>
-        Privacy
-      </NavLink>
       {!onLoginPage && (
-        <Link
-          href="/login"
-          data-testid="nav-login"
-          onClick={close}
-          className={`${navItem} text-foreground`}
-        >
-          Sign in
-        </Link>
+        <>
+          <Link href="/login" data-testid="nav-login" onClick={close} className={`${navItem} text-foreground`}>
+            Sign in
+          </Link>
+          <Link href="/register" data-testid="nav-register" onClick={close}
+            className="inline-flex items-center h-9 px-4 rounded-md bg-foreground text-background text-sm">
+            Get started
+          </Link>
+        </>
       )}
     </>
   );
@@ -121,7 +115,7 @@ export function AppHeader({ variant = "app" }: { variant?: Variant }) {
       data-testid="app-header"
       className="border-b border-border bg-background/80 backdrop-blur sticky top-0 z-30"
     >
-      <div className="max-w-352 mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
         <Link
           href={variant === "app" ? "/" : "/welcome"}
           data-testid="brand-link"
