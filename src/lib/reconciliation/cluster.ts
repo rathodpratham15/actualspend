@@ -55,6 +55,21 @@ export type NmCluster = {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** True if any bank token (≥3 chars) appears in any of the SW descriptions. */
+function hasAnyTextOverlap(bankName: string, descs: (string | null)[]): boolean {
+  const toTokens = (s: string) =>
+    new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3));
+  const bankTokens = toTokens(bankName);
+  if (bankTokens.size === 0) return true; // can't judge — don't penalize
+  for (const desc of descs) {
+    if (!desc) continue;
+    for (const t of toTokens(desc)) {
+      if (bankTokens.has(t)) return true;
+    }
+  }
+  return false;
+}
+
 function daysBetween(a: string, b: string): number {
   return Math.round(
     Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 86_400_000,
@@ -64,7 +79,7 @@ function daysBetween(a: string, b: string): number {
 function amountScore(diff: number): number {
   if (diff <= AMOUNT_TOL_EXACT) return 1;
   if (diff <= AMOUNT_TOL_SOFT) return 0.85;
-  if (diff <= AMOUNT_TOL_HARD) return 0.35;
+  if (diff <= AMOUNT_TOL_HARD) return 0.60;
   return 0;
 }
 
@@ -95,7 +110,7 @@ function detect1N(
   // Try pairs first (size 2), then triples (size 3). Beyond that the
   // probability of a spurious sum-match grows too fast relative to benefit.
   for (let size = 2; size <= Math.min(3, n); size++) {
-    const result = findSubset(txnAmt, candidates, size, txn.date);
+    const result = findSubset(txnAmt, candidates, size, txn.date, txn.name);
     if (result) return { shape: "1:N", bankTxns: [txn], ...result };
   }
   return null;
@@ -106,6 +121,7 @@ function findSubset(
   candidates: ClusterSwExpense[],
   size: number,
   txnDate: string,
+  txnName: string,
 ): Omit<NmCluster, "shape" | "bankTxns"> | null {
   const n = candidates.length;
 
@@ -127,6 +143,11 @@ function findSubset(
   const matched = combo(0, []);
   if (!matched) return null;
 
+  // Never propose a cluster where the user's actual share is zero — it adds
+  // no reconciliation value and is almost certainly a false positive.
+  const totalUserShare = matched.reduce((s, e) => s + Number(e.userShare), 0);
+  if (totalUserShare <= 0) return null;
+
   const sum = matched.reduce((s, e) => s + Number(e.paidByUser), 0);
   const diff = Math.abs(sum - targetAmt);
   const aScore = amountScore(diff);
@@ -137,7 +158,10 @@ function findSubset(
     matched.length;
   const dScore = dateScore(Math.round(avgDays));
 
-  const confidence = Number((aScore * 0.7 + dScore * 0.2).toFixed(4));
+  // Penalise clusters where no bank token appears in any SW description.
+  const textPenalty = hasAnyTextOverlap(txnName, matched.map((e) => e.description)) ? 1 : 0.75;
+
+  const confidence = Number(((aScore * 0.7 + dScore * 0.2) * textPenalty).toFixed(4));
 
   const descriptions = matched
     .map((e) => e.description)
@@ -222,9 +246,15 @@ function findTxnSubset(
         const days = daysBetween(avgDate, exp.date);
         if (days > DATE_WINDOW_DAYS) continue;
 
+        // Never propose if user's share is zero — no reconciliation value.
+        if (Number(exp.userShare) <= 0) continue;
+
         const aScore = amountScore(diff);
         const dScore = dateScore(days);
-        const confidence = Number((aScore * 0.7 + dScore * 0.2).toFixed(4));
+        // Penalise when no bank name token appears in the SW description.
+        const combinedNames = chosen.map((t) => t.name).join(" ");
+        const textPenalty = hasAnyTextOverlap(combinedNames, [exp.description]) ? 1 : 0.75;
+        const confidence = Number(((aScore * 0.7 + dScore * 0.2) * textPenalty).toFixed(4));
 
         return {
           bankTxns: chosen,
