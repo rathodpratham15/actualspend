@@ -11,9 +11,9 @@ import {
 // them later. Amount is the trust anchor — a strong amount mismatch zeroes the
 // whole score even if date/text look good.
 
-const W_AMOUNT = 0.7;
-const W_DATE = 0.2;
-const W_TEXT = 0.1;
+const W_AMOUNT = 0.55;
+const W_DATE = 0.20;
+const W_TEXT = 0.25;
 
 export type CandidateScore = {
   score: number;
@@ -47,7 +47,7 @@ function scoreAmount(
   }
   if (diff <= AMOUNT_TOL_HARD) {
     return {
-      value: 0.35,
+      value: 0.60,
       reason: {
         kind: "amount",
         weight: W_AMOUNT,

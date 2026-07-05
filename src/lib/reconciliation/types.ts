@@ -44,4 +44,4 @@ export const DATE_WINDOW_DAYS = 3;
 /** Amount tolerance bands. Differences ≤ TOL_EXACT keep top-tier score. */
 export const AMOUNT_TOL_EXACT = 0.01;
 export const AMOUNT_TOL_SOFT = 1.0;
-export const AMOUNT_TOL_HARD = 5.0;
+export const AMOUNT_TOL_HARD = 8.0;

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { usd, dateShort } from "@/lib/format";
 import type { ReconciliationPair } from "@/lib/seed";
+import { ManualMatchPicker } from "@/components/manual-match-picker";
 
 type State = "confirmed" | "awaiting" | "splitwise" | "personal";
 
@@ -28,6 +29,21 @@ export function ReconCard({
   dismissed?: boolean;
 }) {
   const [showMenu, setShowMenu] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!showMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showMenu]);
+
   if (dismissed) return null;
 
   return (
@@ -94,7 +110,7 @@ export function ReconCard({
         </div>
 
         {state === "awaiting" && (
-          <div className="flex flex-wrap items-center gap-2 relative">
+          <div className="flex flex-wrap items-center gap-2 relative" ref={menuRef}>
             <button
               type="button"
               data-testid={`reject-${pair.id}`}
@@ -122,10 +138,13 @@ export function ReconCard({
               <MoreHorizontal className="h-4 w-4" />
             </button>
             {showMenu && (
-              <div className="absolute right-0 top-10 z-10 w-56 bg-surface border border-border rounded-md py-1 text-sm">
+              <div className="absolute right-0 top-10 z-10 w-56 bg-surface border border-border rounded-md py-1 text-sm shadow-lift">
                 <button
                   className="w-full text-left px-3 py-2 hover:bg-secondary"
-                  onClick={() => setShowMenu(false)}
+                  onClick={() => {
+                    setShowMenu(false);
+                    setShowPicker(true);
+                  }}
                 >
                   Match to a different expense
                 </button>
@@ -134,6 +153,13 @@ export function ReconCard({
           </div>
         )}
       </div>
+
+      {showPicker && (
+        <ManualMatchPicker
+          reconId={pair.id}
+          onClose={() => setShowPicker(false)}
+        />
+      )}
     </div>
   );
 }
