@@ -31,6 +31,7 @@ import { ReconcileTabs } from "@/components/reconcile-tabs";
 import { TimeRangePicker } from "@/components/time-range-picker";
 import { parsePeriod } from "@/lib/dashboard/period";
 import { Suspense } from "react";
+import { PersonalMergeSection, type PersonalRow } from "@/components/personal-merge-section";
 
 type Row = {
   recId: string;
@@ -473,39 +474,27 @@ export default async function ReconcilePage({
     </>
   );
 
-  // Build personal content
-  const personalContent = personal.length === 0 ? (
-    <div className="surface-card p-12 text-center text-sm text-secondary">No unmatched bank charges.</div>
-  ) : (
-    <>
-      {personal.map((r) => {
-        const bankAmt = Number(r.txnAmount ?? 0);
-        const actual = Number(r.actualAmount);
-        const overridden = r.state === "MANUAL_MATCH" && Math.abs(actual - bankAmt) > 0.005;
-        return (
-          <div key={r.recId} data-testid={`personal-${r.recId}`} className="surface-card p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="pill pill-muted">Personal</span>
-                </div>
-                <div className="text-sm font-medium truncate">{r.txnName ?? "(no description)"}</div>
-                <div className="text-xs text-secondary mt-0.5">{r.txnDate ? dateShort(r.txnDate) : "—"}</div>
-              </div>
-              <div className="text-right shrink-0 font-mono text-sm">
-                {overridden ? (
-                  <>
-                    <div>{usd(-actual, { decimals: 2 })}</div>
-                    <div className="text-xs text-secondary line-through">{usd(-bankAmt, { decimals: 2 })}</div>
-                  </>
-                ) : usd(-bankAmt, { decimals: 2 })}
-              </div>
-            </div>
-            <MarkSharedForm reconId={r.recId} defaultAmount={overridden ? actual : bankAmt} bankAmount={bankAmt} />
-          </div>
-        );
-      })}
-    </>
+  // Build personal content — wrapped in PersonalMergeSection for multi-select grouping
+  const personalRows: PersonalRow[] = personal.map((r) => ({
+    recId: r.recId,
+    txnName: r.txnName,
+    txnAmount: r.txnAmount,
+    txnDate: r.txnDate,
+    actualAmount: r.actualAmount,
+    state: r.state,
+  }));
+
+  const personalContent = (
+    <PersonalMergeSection
+      rows={personalRows}
+      markSharedSlot={(reconId, bankAmt, overridden, actual) => (
+        <MarkSharedForm
+          reconId={reconId}
+          defaultAmount={overridden ? actual : bankAmt}
+          bankAmount={bankAmt}
+        />
+      )}
+    />
   );
 
   return (
