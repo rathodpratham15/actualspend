@@ -3,10 +3,6 @@ import { reconciliations, transactions } from "@/lib/db/schema";
 import { RECONCILIATION_TYPES } from "@/lib/reconciliation/types";
 import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
 
-// ── Shared filter ─────────────────────────────────────────────────────────────
-
-const EXCLUDED_CATEGORIES = `(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('CC_PAYMENT', 'INCOME', 'REIMBURSEMENT', 'TRANSFER'))`;
-
 // ── Subscription detection ────────────────────────────────────────────────────
 
 export type SubscriptionRow = {
@@ -54,7 +50,7 @@ export async function computeSubscriptions(
         gte(transactions.date, from),
         lte(transactions.date, to),
         sql`${transactions.amount}::numeric > 0`,
-        sql`${EXCLUDED_CATEGORIES}`,
+        sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('CC_PAYMENT', 'INCOME', 'REIMBURSEMENT', 'TRANSFER'))`,
       ),
     )
     .groupBy(
@@ -167,7 +163,7 @@ export async function computeCardExposure(
         gte(transactions.date, from),
         lte(transactions.date, to),
         sql`${transactions.amount}::numeric > 0`,
-        sql`${EXCLUDED_CATEGORIES}`,
+        sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('CC_PAYMENT', 'INCOME', 'REIMBURSEMENT', 'TRANSFER'))`,
       ),
     )
     .groupBy(
