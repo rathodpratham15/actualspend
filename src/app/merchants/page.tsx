@@ -18,6 +18,7 @@ const SORT_OPTIONS_M = [
   { value: "name",       label: "Name (A → Z)" },
 ];
 import { MerchantFavicon } from "@/components/merchant-favicon";
+import { AmbiguousMerchantBanner, type AmbiguousGroup } from "@/components/ambiguous-merchant-banner";
 import { usd } from "@/lib/format";
 
 const CAT_LABELS: Record<string, string> = {
@@ -268,6 +269,35 @@ async function fetchChannels(userId: string, yearMonth: string): Promise<Channel
     }));
 }
 
+async function fetchAmbiguousGroups(userId: string): Promise<AmbiguousGroup[]> {
+  // Ambiguous = aggregator channel is known but destination = channel (no sub-store resolved).
+  const rows = await db
+    .select({
+      rawPattern: transactions.name,
+      channel: transactions.channel,
+      txnCount: sql<number>`COUNT(*)::int`,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        isNull(transactions.deletedAt),
+        sql`${transactions.channel} IS NOT NULL`,
+        sql`${transactions.effectiveMerchant} = ${transactions.channel}`,
+      ),
+    )
+    .groupBy(transactions.name, transactions.channel)
+    .orderBy(sql`COUNT(*) DESC`);
+
+  return rows
+    .filter((r): r is typeof r & { channel: string } => !!r.channel)
+    .map((r) => ({
+      rawPattern: r.rawPattern,
+      channel: r.channel,
+      txnCount: Number(r.txnCount),
+    }));
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -285,9 +315,10 @@ export default async function MerchantsPage({
   const page = parsePage(params.page as string | undefined);
   const sort = parseSort(params.sort as string | undefined);
 
-  const [{ rows: merchants, total, grandTotal, globalMax }, channels] = await Promise.all([
+  const [{ rows: merchants, total, grandTotal, globalMax }, channels, ambiguousGroups] = await Promise.all([
     fetchMerchants(session.user.id, yearMonth, page, sort),
     fetchChannels(session.user.id, yearMonth),
+    fetchAmbiguousGroups(session.user.id),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -317,6 +348,8 @@ export default async function MerchantsPage({
             )}
           </div>
         </div>
+
+        <AmbiguousMerchantBanner groups={ambiguousGroups} />
 
         {merchants.length === 0 ? (
           <div className="mt-16 text-center text-secondary text-sm">
