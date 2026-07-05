@@ -1,98 +1,202 @@
+import { Suspense } from "react";
 import { auth } from "@/lib/auth";
 import { AppHeader } from "@/components/app-header";
-import { computeSubscriptions, type SubscriptionRow } from "@/lib/dashboard/subscriptions";
+import {
+  computeSubscriptions,
+  computeCardExposure,
+  type SubscriptionRow,
+  type CardExposureRow,
+} from "@/lib/dashboard/subscriptions";
 import { MerchantFavicon } from "@/components/merchant-favicon";
+import { TimeRangePicker } from "@/components/time-range-picker";
+import { parsePeriod } from "@/lib/dashboard/period";
 import { usd } from "@/lib/format";
-import { Repeat, Users, Calendar } from "lucide-react";
+import { Repeat, Users, Calendar, CreditCard, ChevronRight } from "lucide-react";
 
-export default async function SubscriptionsPage() {
+// Default lookback for the subscriptions page: 12 months.
+function defaultPeriod(): { from: string; to: string } {
+  const now = new Date();
+  const from = new Date(now);
+  from.setFullYear(from.getFullYear() - 1);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return { from: fmt(from), to: fmt(now) };
+}
+
+export default async function SubscriptionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (!session?.user?.id) return null;
 
-  const subs = await computeSubscriptions(session.user.id);
+  const params = await searchParams;
+
+  // Use 12-month window as default (wider than dashboard's current-month default).
+  const hasParams =
+    (typeof params.from === "string" && params.from) ||
+    (typeof params.to === "string" && params.to);
+  const period = hasParams ? parsePeriod(params) : defaultPeriod();
+
+  const subs = await computeSubscriptions(session.user.id, period.from, period.to);
+  const recurringMerchants = new Set(subs.map((s) => s.merchant));
+
+  const exposure = await computeCardExposure(
+    session.user.id,
+    period.from,
+    period.to,
+    recurringMerchants,
+  );
 
   const totalMonthly = subs.reduce((s, r) => s + r.monthlyActual, 0);
   const sharedCount = subs.filter((r) => r.isShared).length;
+  const nonRecurring = exposure.filter((r) => !r.isRecurring);
 
   return (
     <div className="min-h-screen bg-background">
       <AppHeader variant="app" />
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10 pb-24">
-        {/* Header */}
-        <div className="mb-6">
-          <div className="text-[11px] uppercase tracking-widest text-secondary">Subscriptions</div>
-          <h1 className="text-[22px] font-medium tracking-tight mt-1">Recurring charges</h1>
-          <p className="text-sm text-secondary mt-1">
-            Merchants that charged you in 3+ of the last 12 months with stable amounts.
-          </p>
+        {/* Header row */}
+        <div className="flex flex-wrap items-end justify-between gap-3 mb-6">
+          <div>
+            <div className="text-[11px] uppercase tracking-widest text-secondary">Card usage</div>
+            <h1 className="text-[22px] font-medium tracking-tight mt-1">Where your card is used</h1>
+          </div>
+          <Suspense>
+            <TimeRangePicker from={period.from} to={period.to} />
+          </Suspense>
         </div>
 
-        {subs.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <>
-            {/* Summary strip */}
-            <div className="grid grid-cols-3 gap-3 mb-6">
-              <SummaryCard
-                label="Est. monthly"
-                value={usd(totalMonthly, { decimals: 0 })}
-                sub="combined actual"
-              />
-              <SummaryCard
-                label="Active"
-                value={String(subs.length)}
-                sub={`subscription${subs.length !== 1 ? "s" : ""}`}
-              />
-              <SummaryCard
-                label="Shared"
-                value={String(sharedCount)}
-                sub="via Splitwise"
-              />
-            </div>
+        {/* Summary strip */}
+        {(subs.length > 0 || exposure.length > 0) && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <SummaryCard label="All places" value={String(exposure.length)} sub="distinct merchants" />
+            <SummaryCard label="Recurring" value={String(subs.length)} sub="stable charges" />
+            <SummaryCard label="Est. monthly" value={usd(totalMonthly, { decimals: 0 })} sub="recurring actual" />
+            <SummaryCard label="Shared" value={String(sharedCount)} sub="via Splitwise" />
+          </div>
+        )}
 
-            {/* Table */}
-            <div className="surface-card overflow-hidden">
-              <div className="flex items-center gap-4 px-5 py-3 border-b border-border bg-background/50 text-[11px] uppercase tracking-widest text-secondary">
+        {/* ── Recurring charges ─────────────────────────────────────────── */}
+        <Section
+          icon={<Repeat className="h-4 w-4" strokeWidth={1.5} />}
+          title="Recurring charges"
+          subtitle={`Appeared in 3+ months with stable amounts within the selected period`}
+          count={subs.length}
+        >
+          {subs.length === 0 ? (
+            <EmptySection
+              message="No recurring charges detected in this period."
+              hint="Try widening the date range — we need at least 3 months of consistent charges."
+            />
+          ) : (
+            <>
+              <div className="flex items-center gap-4 px-5 py-2.5 border-b border-border bg-background/50 text-[10px] uppercase tracking-widest text-secondary">
                 <div className="flex-1">Merchant</div>
-                <div className="w-24 text-center hidden sm:block">Trend</div>
+                <div className="w-24 text-center hidden sm:block">6-mo trend</div>
                 <div className="w-20 text-right hidden sm:block">Bank</div>
                 <div className="w-20 text-right">Actual/mo</div>
                 <div className="w-16 text-right">Active</div>
               </div>
-
               <div className="divide-y divide-border">
                 {subs.map((sub) => (
-                  <SubscriptionRow key={sub.merchant} sub={sub} />
+                  <RecurringRow key={sub.merchant} sub={sub} />
                 ))}
               </div>
-            </div>
+            </>
+          )}
+        </Section>
 
-            <p className="mt-4 text-xs text-secondary">
-              Actual/mo reflects your reconciled share — shared expenses show your portion only.
-              Last 12 months of data.
-            </p>
-          </>
+        {/* ── All places ────────────────────────────────────────────────── */}
+        <Section
+          icon={<CreditCard className="h-4 w-4" strokeWidth={1.5} />}
+          title="All places"
+          subtitle="Every merchant that charged your card in this period"
+          count={exposure.length}
+          className="mt-4"
+        >
+          {exposure.length === 0 ? (
+            <EmptySection message="No transactions found in this period." />
+          ) : (
+            <>
+              <div className="flex items-center gap-4 px-5 py-2.5 border-b border-border bg-background/50 text-[10px] uppercase tracking-widest text-secondary">
+                <div className="flex-1">Merchant</div>
+                <div className="w-28 text-right hidden sm:block">First seen</div>
+                <div className="w-28 text-right hidden sm:block">Last seen</div>
+                <div className="w-14 text-right">Txns</div>
+                <div className="w-24 text-right">Total spent</div>
+              </div>
+              <div className="divide-y divide-border">
+                {exposure.map((row) => (
+                  <ExposureRow key={row.merchant} row={row} periodTo={period.to} />
+                ))}
+              </div>
+            </>
+          )}
+        </Section>
+
+        {nonRecurring.length > 0 && (
+          <p className="mt-4 text-xs text-secondary">
+            {nonRecurring.length} of {exposure.length} merchants charged you once or twice — they appear in "All places" but not "Recurring."
+          </p>
         )}
       </main>
     </div>
   );
 }
 
-function SummaryCard({
-  label,
-  value,
-  sub,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-}) {
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function SummaryCard({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
     <div className="surface-card p-4">
-      <div className="text-[11px] uppercase tracking-widest text-secondary">{label}</div>
+      <div className="text-[10px] uppercase tracking-widest text-secondary">{label}</div>
       <div className="font-mono text-xl font-medium mt-1">{value}</div>
       <div className="text-xs text-secondary mt-0.5">{sub}</div>
+    </div>
+  );
+}
+
+function Section({
+  icon,
+  title,
+  subtitle,
+  count,
+  children,
+  className = "",
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  count: number;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`surface-card overflow-hidden ${className}`}>
+      <div className="px-5 py-4 border-b border-border flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-secondary">{icon}</span>
+          <div>
+            <div className="text-sm font-medium">{title}</div>
+            <div className="text-xs text-secondary mt-0.5">{subtitle}</div>
+          </div>
+        </div>
+        <span className="text-xs text-secondary font-mono shrink-0">{count}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function EmptySection({ message, hint }: { message: string; hint?: string }) {
+  return (
+    <div className="px-5 py-8 text-center">
+      <p className="text-sm text-secondary">{message}</p>
+      {hint && <p className="text-xs text-secondary mt-1">{hint}</p>}
     </div>
   );
 }
@@ -108,11 +212,7 @@ function Sparkline({ amounts }: { amounts: { month: string; actual: number }[] }
   const step = W / (vals.length - 1);
 
   const points = vals
-    .map((v, i) => {
-      const x = i * step;
-      const y = H - ((v - min) / range) * H;
-      return `${x},${y}`;
-    })
+    .map((v, i) => `${i * step},${H - ((v - min) / range) * H}`)
     .join(" ");
 
   return (
@@ -126,7 +226,6 @@ function Sparkline({ amounts }: { amounts: { month: string; actual: number }[] }
         strokeLinecap="round"
         className="text-emerald-accent/70"
       />
-      {/* Last dot */}
       <circle
         cx={(vals.length - 1) * step}
         cy={H - ((vals[vals.length - 1] - min) / range) * H}
@@ -137,68 +236,51 @@ function Sparkline({ amounts }: { amounts: { month: string; actual: number }[] }
   );
 }
 
-function lastSeenLabel(iso: string): string {
+function shortDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
+    year: "numeric",
   });
 }
 
-function SubscriptionRow({ sub }: { sub: SubscriptionRow }) {
+function RecurringRow({ sub }: { sub: SubscriptionRow }) {
   const isDiscounted = sub.monthlyActual < sub.monthlyBank - 0.5;
-
   return (
     <div className="flex items-center gap-4 px-5 py-4 hover:bg-muted/30 transition-colors">
-      {/* Merchant */}
       <div className="flex-1 flex items-center gap-3 min-w-0">
         <MerchantFavicon name={sub.merchant} />
         <div className="min-w-0">
           <div className="text-sm font-medium truncate flex items-center gap-1.5">
             {sub.merchant}
             {sub.isShared && (
-              <span title="Shared via Splitwise">
-                <Users className="h-3 w-3 text-secondary inline" strokeWidth={1.5} />
-              </span>
+              <span title="Shared via Splitwise"><Users className="h-3 w-3 text-secondary shrink-0" strokeWidth={1.5} /></span>
             )}
           </div>
-          <div className="flex items-center gap-2 mt-0.5">
+          <div className="text-[10px] text-secondary mt-0.5 flex items-center gap-1.5">
             {sub.channel && sub.channel !== sub.merchant && (
-              <span className="text-[10px] text-secondary">via {sub.channel}</span>
+              <span>via {sub.channel}</span>
             )}
-            <span className="text-[10px] text-secondary flex items-center gap-0.5">
+            <span className="flex items-center gap-0.5">
               <Calendar className="h-2.5 w-2.5" strokeWidth={1.5} />
-              {lastSeenLabel(sub.lastSeen)}
+              {shortDate(sub.lastSeen)}
             </span>
           </div>
         </div>
       </div>
-
-      {/* Sparkline */}
-      <div className="w-24 flex justify-center hidden sm:flex">
+      <div className="w-24 hidden sm:flex justify-center">
         <Sparkline amounts={sub.monthlyAmounts} />
       </div>
-
-      {/* Bank amount */}
       <div className="w-20 text-right hidden sm:block">
-        <span className="font-mono text-sm text-secondary">
-          {usd(sub.monthlyBank, { decimals: 0 })}
-        </span>
+        <span className="font-mono text-sm text-secondary">{usd(sub.monthlyBank, { decimals: 0 })}</span>
       </div>
-
-      {/* Actual amount */}
       <div className="w-20 text-right">
-        <span className="font-mono text-sm font-medium">
-          {usd(sub.monthlyActual, { decimals: 0 })}
-        </span>
-        {isDiscounted && (
-          <div className="text-[10px] text-emerald-accent">shared</div>
-        )}
+        <span className="font-mono text-sm font-medium">{usd(sub.monthlyActual, { decimals: 0 })}</span>
+        {isDiscounted && <div className="text-[10px] text-emerald-accent">shared</div>}
       </div>
-
-      {/* Months active */}
       <div className="w-16 text-right">
-        <span className="flex items-center justify-end gap-1 text-sm text-secondary">
+        <span className="text-sm text-secondary font-mono flex items-center justify-end gap-1">
           <Repeat className="h-3 w-3 shrink-0" strokeWidth={1.5} />
           {sub.monthsActive}mo
         </span>
@@ -207,15 +289,48 @@ function SubscriptionRow({ sub }: { sub: SubscriptionRow }) {
   );
 }
 
-function EmptyState() {
+function ExposureRow({ row, periodTo }: { row: CardExposureRow; periodTo: string }) {
+  // "Active" = charged within last 45 days of the period end.
+  const msPerDay = 86_400_000;
+  const toMs = new Date(periodTo).getTime();
+  const lastMs = new Date(row.lastSeen).getTime();
+  const daysSinceLast = Math.round((toMs - lastMs) / msPerDay);
+  const isActive = daysSinceLast <= 45;
+
   return (
-    <div className="mt-16 text-center">
-      <Repeat className="h-8 w-8 text-secondary mx-auto mb-3" strokeWidth={1} />
-      <p className="text-secondary text-sm">No recurring charges detected yet.</p>
-      <p className="text-xs text-secondary mt-1">
-        We look for merchants that appear in 3+ months with stable amounts.
-        Check back after a few months of transaction history.
-      </p>
+    <div className="flex items-center gap-4 px-5 py-3.5 hover:bg-muted/30 transition-colors">
+      <div className="flex-1 flex items-center gap-3 min-w-0">
+        <MerchantFavicon name={row.merchant} />
+        <div className="min-w-0">
+          <div className="text-sm font-medium truncate flex items-center gap-1.5">
+            {row.merchant}
+            {row.isRecurring && (
+              <span className="text-[9px] uppercase tracking-wide text-emerald-accent border border-emerald-accent/30 rounded px-1 py-px">
+                recurring
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-0.5 text-[10px] text-secondary">
+            {row.channel && row.channel !== row.merchant && <span>via {row.channel}</span>}
+            <span className={`inline-flex items-center gap-0.5 ${isActive ? "text-success" : "text-secondary"}`}>
+              <span className={`h-1.5 w-1.5 rounded-full inline-block ${isActive ? "bg-success" : "bg-secondary"}`} />
+              {isActive ? "Active" : "Inactive"}
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className="w-28 text-right hidden sm:block">
+        <span className="text-xs text-secondary font-mono">{shortDate(row.firstSeen)}</span>
+      </div>
+      <div className="w-28 text-right hidden sm:block">
+        <span className="text-xs text-secondary font-mono">{shortDate(row.lastSeen)}</span>
+      </div>
+      <div className="w-14 text-right">
+        <span className="font-mono text-sm text-secondary">{row.txnCount}</span>
+      </div>
+      <div className="w-24 text-right">
+        <span className="font-mono text-sm font-medium">{usd(row.totalActual, { decimals: 2 })}</span>
+      </div>
     </div>
   );
 }
