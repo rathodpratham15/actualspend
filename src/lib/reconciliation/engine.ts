@@ -51,6 +51,8 @@ export type ReconcileResult = {
   unmatched: number;
   reimbursementsAuto: number;
   reimbursementsProposed: number;
+  reimbursementsSentAuto: number;
+  reimbursementsSentProposed: number;
   unmatchedInflows: number;
   coverageStart: string | null;
   coverageEnd: string | null;
@@ -416,16 +418,158 @@ export async function reconcileForUser(
     unmatched: 0,
     reimbursementsAuto: 0,
     reimbursementsProposed: 0,
+    reimbursementsSentAuto: 0,
+    reimbursementsSentProposed: 0,
     unmatchedInflows: 0,
     coverageStart,
     coverageEnd,
     swSkippedOutOfWindow,
   };
 
+  // 3-sent. REIMBURSEMENT_SENT pre-pass — match bank outflows against
+  // Splitwise payment records the user sent (isPayment=true, paidByUser>0).
+  // Venmo/Zelle/PayPal outflows that settle a Splitwise debt are claimed
+  // here before the FRONTED_SHARED_EXPENSE loop, so they don't get
+  // miscategorized as personal expenses.
+  const sentPaymentRecords =
+    coverageStart && coverageEnd
+      ? ((await db
+          .select({
+            id: splitwiseExpenses.id,
+            cost: splitwiseExpenses.cost,
+            date: splitwiseExpenses.date,
+            description: splitwiseExpenses.description,
+            currencyCode: splitwiseExpenses.currencyCode,
+            paidByUser: splitwiseExpenses.paidByUser,
+            userShare: splitwiseExpenses.userShare,
+          })
+          .from(splitwiseExpenses)
+          .where(
+            and(
+              eq(splitwiseExpenses.userId, userId),
+              isNull(splitwiseExpenses.deletedAt),
+              eq(splitwiseExpenses.isPayment, true),
+              sql`${splitwiseExpenses.paidByUser}::numeric > 0`,
+              gte(splitwiseExpenses.date, coverageStart),
+              lte(splitwiseExpenses.date, coverageEnd),
+            ),
+          )) as SwExpense[])
+      : [];
+  const sentCandidates = sentPaymentRecords.filter(
+    (e) => !claimedSwIdsByUser.has(e.id),
+  );
+
+  // Recipient name map: for each sent payment, find the friend who received
+  // it. Fed into scoreCandidate as the "description" so text-overlap fires
+  // when the bank txn says "ZELLE TO VINIT SHAH" against friend "Vinit Shah".
+  const recipientNameByExpenseId = new Map<string, string>();
+  if (sentCandidates.length > 0) {
+    const [selfCredSent] = await db
+      .select({ splitwiseUserId: splitwiseCredentials.splitwiseUserId })
+      .from(splitwiseCredentials)
+      .where(eq(splitwiseCredentials.userId, userId));
+    const selfIdSent = selfCredSent?.splitwiseUserId ?? null;
+
+    const sentParts = await db
+      .select({
+        expenseId: splitwiseExpenseParticipants.expenseId,
+        splitwiseUserId: splitwiseExpenseParticipants.splitwiseUserId,
+        owedShare: splitwiseExpenseParticipants.owedShare,
+      })
+      .from(splitwiseExpenseParticipants)
+      .where(
+        inArray(
+          splitwiseExpenseParticipants.expenseId,
+          sentCandidates.map((p) => p.id),
+        ),
+      );
+
+    const sentFriends = await db
+      .select({
+        splitwiseUserId: splitwiseFriends.splitwiseUserId,
+        firstName: splitwiseFriends.firstName,
+        lastName: splitwiseFriends.lastName,
+      })
+      .from(splitwiseFriends)
+      .where(eq(splitwiseFriends.userId, userId));
+    const sentNameById = new Map(
+      sentFriends.map((f) => [
+        f.splitwiseUserId,
+        `${f.firstName ?? ""} ${f.lastName ?? ""}`.trim(),
+      ]),
+    );
+
+    for (const p of sentParts) {
+      // owedShare > 0 → this participant had the debt that the payment cleared
+      if (Number(p.owedShare) <= 0) continue;
+      if (selfIdSent !== null && p.splitwiseUserId === selfIdSent) continue;
+      const name = sentNameById.get(p.splitwiseUserId);
+      if (name) recipientNameByExpenseId.set(p.expenseId, name);
+    }
+  }
+
+  const sentClaimedTxnIds = new Set<string>();
+  const sentClaimedSwIds = new Set<string>();
+
+  for (const txn of bankTxns) {
+    if (nmTxnIds.has(txn.id) || lockedTxnIds.has(txn.id)) continue;
+
+    let bestSent: {
+      exp: SwExpense;
+      score: number;
+      reasons: MatchReason[];
+    } | null = null;
+
+    for (const pmt of sentCandidates) {
+      if (sentClaimedSwIds.has(pmt.id)) continue;
+      const days = Math.round(
+        Math.abs(
+          new Date(txn.date).getTime() - new Date(pmt.date).getTime(),
+        ) / 86_400_000,
+      );
+      if (days > DATE_WINDOW_DAYS) continue;
+
+      const recipientName = recipientNameByExpenseId.get(pmt.id);
+      const s = scoreCandidate(
+        { amount: Number(txn.amount), date: txn.date, name: txn.name },
+        {
+          cost: Number(pmt.paidByUser),
+          date: pmt.date,
+          description: recipientName ?? pmt.description,
+        },
+      );
+      if (s.score > (bestSent?.score ?? 0)) {
+        bestSent = { exp: pmt, score: s.score, reasons: s.reasons };
+      }
+    }
+
+    if (bestSent && bestSent.score >= THRESHOLDS.PROPOSE) {
+      const isAuto = bestSent.score >= THRESHOLDS.AUTO_MATCH;
+      sentClaimedTxnIds.add(txn.id);
+      sentClaimedSwIds.add(bestSent.exp.id);
+      await writeGroup(userId, {
+        transactions: [txn],
+        splitwiseExpenses: [bestSent.exp],
+        reconciliationType: RECONCILIATION_TYPES.REIMBURSEMENT_SENT,
+        state: isAuto ? STATES.AUTO_MATCHED : STATES.PENDING,
+        confidence: bestSent.score,
+        reasons: bestSent.reasons,
+        // Sending a payment to settle a debt doesn't add to personal spend;
+        // the spend was already counted when the shared expense was fronted.
+        actualAmount: 0,
+      });
+      if (isAuto) result.reimbursementsSentAuto++;
+      else result.reimbursementsSentProposed++;
+    }
+  }
+
   // 3. For each bank outflow, find the best Splitwise candidate.
   // (claimedSwIds is already seeded with N:M-claimed expense IDs above.)
-  // Re-filter bankTxns to exclude anything the N:M pass just claimed.
-  const remaining1to1Txns = bankTxns.filter((t) => !lockedTxnIds.has(t.id));
+  // Re-filter bankTxns to exclude anything the N:M pass or REIMBURSEMENT_SENT
+  // pass just claimed.
+  const remaining1to1Txns = bankTxns.filter(
+    (t) => !lockedTxnIds.has(t.id) && !sentClaimedTxnIds.has(t.id),
+  );
 
   for (const txn of remaining1to1Txns) {
     const txnAmt = Number(txn.amount);
