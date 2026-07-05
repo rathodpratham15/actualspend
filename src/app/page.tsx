@@ -24,6 +24,7 @@ import { detectLikelyRent } from "@/lib/dashboard/detect-rent";
 
 import { AppHeader } from "@/components/app-header";
 import { DashboardHero } from "@/components/dashboard-hero";
+import { SpendNarrative } from "@/components/spend-narrative";
 import { SpendChartWrapper } from "@/components/spend-chart-wrapper";
 import { OnboardingBanner } from "@/components/onboarding-banner";
 import { RoommateModal } from "@/components/roommate-modal";
@@ -170,6 +171,7 @@ export default async function DashboardPage({
           metrics={metrics}
           periodLabel={periodLabel(period)}
         />
+        <SpendNarrative metrics={metrics} periodLabel={periodLabel(period)} />
 
         {showBanner && <OnboardingBanner detectedRent={detectedRent} />}
 
