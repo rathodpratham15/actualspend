@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -28,6 +28,9 @@ import { SubtractionBlock } from "@/components/subtraction-block";
 import { RunReconcileButton } from "@/components/run-reconcile-button";
 import { MarkSharedForm } from "@/components/mark-shared-form";
 import { ReconcileTabs } from "@/components/reconcile-tabs";
+import { TimeRangePicker } from "@/components/time-range-picker";
+import { parsePeriod } from "@/lib/dashboard/period";
+import { Suspense } from "react";
 
 type Row = {
   recId: string;
@@ -61,7 +64,7 @@ type ParticipantInfo = {
   primaryOtherName: string | null;
 };
 
-async function fetchRows(userId: string): Promise<Row[]> {
+async function fetchRows(userId: string, from: string, to: string): Promise<Row[]> {
   const rows = await db
     .select({
       recId: reconciliations.id,
@@ -91,7 +94,25 @@ async function fetchRows(userId: string): Promise<Row[]> {
       splitwiseExpenses,
       eq(splitwiseExpenses.id, reconciliations.splitwiseExpenseId),
     )
-    .where(eq(reconciliations.userId, userId))
+    .where(
+      and(
+        eq(reconciliations.userId, userId),
+        // For txn-backed rows filter by txn date; for SW-only (no txn) use SW date.
+        or(
+          and(
+            isNotNull(transactions.date),
+            gte(transactions.date, from),
+            lte(transactions.date, to),
+          ),
+          and(
+            isNull(transactions.date),
+            isNotNull(splitwiseExpenses.date),
+            gte(splitwiseExpenses.date, from),
+            lte(splitwiseExpenses.date, to),
+          ),
+        ),
+      ),
+    )
     .orderBy(desc(reconciliations.createdAt));
   return rows as Row[];
 }
@@ -260,8 +281,9 @@ export default async function ReconcilePage({
 
   const sp = await searchParams;
   const query = typeof sp.q === "string" ? sp.q.toLowerCase().trim() : "";
+  const period = parsePeriod(sp);
 
-  const rows = await fetchRows(session.user.id);
+  const rows = await fetchRows(session.user.id, period.from, period.to);
   const participants = await fetchParticipantInfo(session.user.id, rows);
 
   // Search helper — matches query against merchant name or SW description.
@@ -495,7 +517,12 @@ export default async function ReconcilePage({
             <div className="text-[11px] uppercase tracking-widest text-secondary">Reconciliation</div>
             <h1 className="text-[22px] font-medium tracking-tight mt-1">Review your matches</h1>
           </div>
-          <RunReconcileButton />
+          <div className="flex items-center gap-2">
+            <Suspense>
+              <TimeRangePicker from={period.from} to={period.to} />
+            </Suspense>
+            <RunReconcileButton />
+          </div>
         </div>
 
         {/* Summary card */}

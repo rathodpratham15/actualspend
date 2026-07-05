@@ -4,7 +4,7 @@ import {
   splitwiseExpenses,
   transactions,
 } from "@/lib/db/schema";
-import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { RECONCILIATION_TYPES } from "@/lib/reconciliation/types";
 import type { Period } from "./period";
 
@@ -109,8 +109,15 @@ export async function computeDashboardMetrics(
   // expenses). We don't want a "negative pending" sign-flip in the UI.
   const pending = Math.max(grossOwed - received, 0);
 
-  // Actual spend: from the reconciliation engine output, dated by the
-  // underlying transaction (or splitwise expense for SPLITWISE_ONLY).
+  // Actual spend — two parts to handle the case where the engine hasn't
+  // run yet for some Splitwise expenses:
+  //
+  // Part 1: reconciliation rows the engine has already produced. Dated by
+  //   the underlying bank txn (or SW expense for SPLITWISE_ONLY rows).
+  // Part 2: Splitwise expenses in the period the engine has NOT yet
+  //   created a reconciliation row for. Their userShare is real spend too.
+  //   Without this, "actual spend" goes to $0 whenever Splitwise data is
+  //   newer than the last engine run.
   const [actualRow] = await db
     .select({
       total: sql<number>`COALESCE(SUM(${reconciliations.actualAmount}::numeric), 0)::float`,
@@ -128,9 +135,31 @@ export async function computeDashboardMetrics(
       and(
         eq(reconciliations.userId, userId),
         sql`COALESCE(${transactions.date}, ${splitwiseExpenses.date}) BETWEEN ${period.from} AND ${period.to}`,
-        // Mirror the bank-outflow exclusion above so paying off a credit
-        // card doesn't show up as actual spend.
         sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('CC_PAYMENT', 'INCOME', 'REIMBURSEMENT'))`,
+      ),
+    );
+
+  // Part 2: SW expenses with no reconciliation row yet — contribute userShare.
+  const [unreconciledSwRow] = await db
+    .select({
+      total: sql<number>`COALESCE(SUM(${splitwiseExpenses.userShare}::numeric), 0)::float`,
+    })
+    .from(splitwiseExpenses)
+    .leftJoin(
+      reconciliations,
+      and(
+        eq(reconciliations.splitwiseExpenseId, splitwiseExpenses.id),
+        eq(reconciliations.userId, userId),
+      ),
+    )
+    .where(
+      and(
+        eq(splitwiseExpenses.userId, userId),
+        isNull(splitwiseExpenses.deletedAt),
+        gte(splitwiseExpenses.date, period.from),
+        lte(splitwiseExpenses.date, period.to),
+        sql`${splitwiseExpenses.paidByUser}::numeric > 0`,
+        isNull(reconciliations.id), // no engine row yet
       ),
     );
 
@@ -140,7 +169,7 @@ export async function computeDashboardMetrics(
     reimbursementsPending: pending,
     reimbursementsGrossOwed: grossOwed,
     reimbursementsReceived: received,
-    actualSpend: actualRow.total,
+    actualSpend: actualRow.total + unreconciledSwRow.total,
   };
 }
 
