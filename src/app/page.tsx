@@ -14,6 +14,7 @@ import {
   computeDashboardMetrics,
   type CategoryBreakdown,
 } from "@/lib/dashboard/metrics";
+import { computeInsights } from "@/lib/dashboard/insights";
 import {
   computeReconSectionCounts,
   findReauthInstitution,
@@ -25,6 +26,7 @@ import { detectLikelyRent } from "@/lib/dashboard/detect-rent";
 import { AppHeader } from "@/components/app-header";
 import { DashboardHero } from "@/components/dashboard-hero";
 import { SpendNarrative } from "@/components/spend-narrative";
+import { InsightCards } from "@/components/insight-cards";
 import { SpendChartWrapper } from "@/components/spend-chart-wrapper";
 import { OnboardingBanner } from "@/components/onboarding-banner";
 import { RoommateModal } from "@/components/roommate-modal";
@@ -116,7 +118,7 @@ export default async function DashboardPage({
     );
   }
 
-  const [metrics, categoryRows, counts, reauthInstitution, timeline, profile, friends] =
+  const [metrics, categoryRows, counts, reauthInstitution, timeline, profile, friends, insights] =
     await Promise.all([
       computeDashboardMetrics(user.id, period),
       computeCategoryBreakdown(user.id, period),
@@ -125,6 +127,7 @@ export default async function DashboardPage({
       computeSpendTimeline(user.id),
       db.select().from(userProfiles).where(eq(userProfiles.userId, user.id)).limit(1).then(r => r[0] ?? null),
       db.select().from(splitwiseFriends).where(eq(splitwiseFriends.userId, user.id)),
+      computeInsights(user.id),
     ]);
 
   // Show onboarding banner when profile is incomplete and user has transactions.
@@ -174,6 +177,8 @@ export default async function DashboardPage({
         <SpendNarrative metrics={metrics} periodLabel={periodLabel(period)} />
 
         {showBanner && <OnboardingBanner detectedRent={detectedRent} />}
+
+        <InsightCards insights={insights} />
 
         {/* Chart + Reconciliation status — side by side on lg */}
         <div className="mt-4 grid lg:grid-cols-[1fr_300px] gap-4">
