@@ -4,14 +4,18 @@ import { AppHeader } from "@/components/app-header";
 import {
   computeSubscriptions,
   computeCardExposure,
+  fetchMerchantTransactions,
   type SubscriptionRow,
-  type CardExposureRow,
 } from "@/lib/dashboard/subscriptions";
+import { ExposureRow } from "@/components/subscriptions-exposure-row";
 import { MerchantFavicon } from "@/components/merchant-favicon";
 import { TimeRangePicker } from "@/components/time-range-picker";
 import { parsePeriod } from "@/lib/dashboard/period";
 import { usd } from "@/lib/format";
-import { Repeat, Users, Calendar, CreditCard, ChevronRight } from "lucide-react";
+import { Repeat, Users, Calendar, CreditCard, ChevronLeft, ChevronRight } from "lucide-react";
+import Link from "next/link";
+
+const EXPOSURE_PAGE_SIZE = 20;
 
 // Default lookback for the subscriptions page: 12 months.
 function defaultPeriod(): { from: string; to: string } {
@@ -40,6 +44,8 @@ export default async function SubscriptionsPage({
     (typeof params.to === "string" && params.to);
   const period = hasParams ? parsePeriod(params) : defaultPeriod();
 
+  const page = Math.max(1, parseInt(typeof params.page === "string" ? params.page : "1", 10) || 1);
+
   const subs = await computeSubscriptions(session.user.id, period.from, period.to);
   const recurringMerchants = new Set(subs.map((s) => s.merchant));
 
@@ -48,6 +54,20 @@ export default async function SubscriptionsPage({
     period.from,
     period.to,
     recurringMerchants,
+  );
+
+  const totalPages = Math.max(1, Math.ceil(exposure.length / EXPOSURE_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedExposure = exposure.slice(
+    (safePage - 1) * EXPOSURE_PAGE_SIZE,
+    safePage * EXPOSURE_PAGE_SIZE,
+  );
+
+  const txnsByMerchant = await fetchMerchantTransactions(
+    session.user.id,
+    pagedExposure.map((r) => r.merchant),
+    period.from,
+    period.to,
   );
 
   const totalMonthly = subs.reduce((s, r) => s + r.monthlyActual, 0);
@@ -123,6 +143,8 @@ export default async function SubscriptionsPage({
           ) : (
             <>
               <div className="flex items-center gap-4 px-5 py-2.5 border-b border-border bg-background/50 text-[10px] uppercase tracking-widest text-secondary">
+                {/* spacer for chevron column */}
+                <div className="w-4 shrink-0" />
                 <div className="flex-1">Merchant</div>
                 <div className="w-28 text-right hidden sm:block">First seen</div>
                 <div className="w-28 text-right hidden sm:block">Last seen</div>
@@ -130,10 +152,24 @@ export default async function SubscriptionsPage({
                 <div className="w-24 text-right">Total spent</div>
               </div>
               <div className="divide-y divide-border">
-                {exposure.map((row) => (
-                  <ExposureRow key={row.merchant} row={row} periodTo={period.to} />
+                {pagedExposure.map((row) => (
+                  <ExposureRow
+                    key={row.merchant}
+                    row={row}
+                    periodTo={period.to}
+                    txns={txnsByMerchant[row.merchant] ?? []}
+                  />
                 ))}
               </div>
+              {totalPages > 1 && (
+                <ExposurePagination
+                  page={safePage}
+                  totalPages={totalPages}
+                  totalCount={exposure.length}
+                  from={period.from}
+                  to={period.to}
+                />
+              )}
             </>
           )}
         </Section>
@@ -289,47 +325,57 @@ function RecurringRow({ sub }: { sub: SubscriptionRow }) {
   );
 }
 
-function ExposureRow({ row, periodTo }: { row: CardExposureRow; periodTo: string }) {
-  // "Active" = charged within last 45 days of the period end.
-  const msPerDay = 86_400_000;
-  const toMs = new Date(periodTo).getTime();
-  const lastMs = new Date(row.lastSeen).getTime();
-  const daysSinceLast = Math.round((toMs - lastMs) / msPerDay);
-  const isActive = daysSinceLast <= 45;
+function ExposurePagination({
+  page,
+  totalPages,
+  totalCount,
+  from,
+  to,
+}: {
+  page: number;
+  totalPages: number;
+  totalCount: number;
+  from: string;
+  to: string;
+}) {
+  const base = `?from=${from}&to=${to}`;
+  const btnCls =
+    "inline-flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium transition-colors";
+  const activeCls = `${btnCls} hover:bg-muted/60 text-foreground`;
+  const disabledCls = `${btnCls} opacity-30 pointer-events-none`;
 
   return (
-    <div className="flex items-center gap-4 px-5 py-3.5 hover:bg-muted/30 transition-colors">
-      <div className="flex-1 flex items-center gap-3 min-w-0">
-        <MerchantFavicon name={row.merchant} />
-        <div className="min-w-0">
-          <div className="text-sm font-medium truncate flex items-center gap-1.5">
-            {row.merchant}
-            {row.isRecurring && (
-              <span className="text-[9px] uppercase tracking-wide text-emerald-accent border border-emerald-accent/30 rounded px-1 py-px">
-                recurring
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-0.5 text-[10px] text-secondary">
-            {row.channel && row.channel !== row.merchant && <span>via {row.channel}</span>}
-            <span className={`inline-flex items-center gap-0.5 ${isActive ? "text-success" : "text-secondary"}`}>
-              <span className={`h-1.5 w-1.5 rounded-full inline-block ${isActive ? "bg-success" : "bg-secondary"}`} />
-              {isActive ? "Active" : "Inactive"}
-            </span>
-          </div>
-        </div>
-      </div>
-      <div className="w-28 text-right hidden sm:block">
-        <span className="text-xs text-secondary font-mono">{shortDate(row.firstSeen)}</span>
-      </div>
-      <div className="w-28 text-right hidden sm:block">
-        <span className="text-xs text-secondary font-mono">{shortDate(row.lastSeen)}</span>
-      </div>
-      <div className="w-14 text-right">
-        <span className="font-mono text-sm text-secondary">{row.txnCount}</span>
-      </div>
-      <div className="w-24 text-right">
-        <span className="font-mono text-sm font-medium">{usd(row.totalActual, { decimals: 2 })}</span>
+    <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-border text-xs text-secondary">
+      <span className="font-mono">
+        {(page - 1) * EXPOSURE_PAGE_SIZE + 1}–
+        {Math.min(page * EXPOSURE_PAGE_SIZE, totalCount)} of {totalCount}
+      </span>
+      <div className="flex items-center gap-1">
+        {page > 1 ? (
+          <Link href={`${base}&page=${page - 1}`} className={activeCls}>
+            <ChevronLeft className="h-3.5 w-3.5" />
+            Prev
+          </Link>
+        ) : (
+          <span className={disabledCls}>
+            <ChevronLeft className="h-3.5 w-3.5" />
+            Prev
+          </span>
+        )}
+        <span className="px-2 font-mono">
+          {page} / {totalPages}
+        </span>
+        {page < totalPages ? (
+          <Link href={`${base}&page=${page + 1}`} className={activeCls}>
+            Next
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Link>
+        ) : (
+          <span className={disabledCls}>
+            Next
+            <ChevronRight className="h-3.5 w-3.5" />
+          </span>
+        )}
       </div>
     </div>
   );

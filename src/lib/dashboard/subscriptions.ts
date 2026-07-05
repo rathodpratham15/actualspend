@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { reconciliations, transactions } from "@/lib/db/schema";
 import { RECONCILIATION_TYPES } from "@/lib/reconciliation/types";
-import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 
 // ── Subscription detection ────────────────────────────────────────────────────
 
@@ -181,4 +181,67 @@ export async function computeCardExposure(
     totalActual: Number(r.totalActual ?? 0),
     isRecurring: recurringMerchants.has(r.merchant),
   }));
+}
+
+// ── Per-merchant transaction details ─────────────────────────────────────────
+
+export type MerchantTxn = {
+  id: string;
+  date: string;
+  name: string;
+  amount: number;
+  actualAmount: number | null;
+};
+
+// Fetch individual transactions for a specific set of merchant names within
+// [from, to]. Returns a map keyed by the same COALESCE merchant name.
+export async function fetchMerchantTransactions(
+  userId: string,
+  merchants: string[],
+  from: string,
+  to: string,
+): Promise<Record<string, MerchantTxn[]>> {
+  if (merchants.length === 0) return {};
+
+  const merchantFilter = sql.join(
+    merchants.map((m) => sql`${m}`),
+    sql`, `,
+  );
+
+  const rows = await db
+    .select({
+      merchant: sql<string>`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
+      id: transactions.id,
+      date: sql<string>`${transactions.date}::text`,
+      name: transactions.name,
+      amount: sql<number>`${transactions.amount}::float`,
+      actualAmount: sql<number | null>`${reconciliations.actualAmount}::float`,
+    })
+    .from(transactions)
+    .leftJoin(reconciliations, eq(reconciliations.transactionId, transactions.id))
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        isNull(transactions.deletedAt),
+        gte(transactions.date, from),
+        lte(transactions.date, to),
+        sql`${transactions.amount}::numeric > 0`,
+        sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('CC_PAYMENT', 'INCOME', 'REIMBURSEMENT', 'TRANSFER'))`,
+        sql`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name}) IN (${merchantFilter})`,
+      ),
+    )
+    .orderBy(desc(transactions.date));
+
+  const result: Record<string, MerchantTxn[]> = {};
+  for (const r of rows) {
+    if (!result[r.merchant]) result[r.merchant] = [];
+    result[r.merchant].push({
+      id: r.id,
+      date: r.date,
+      name: r.name,
+      amount: Number(r.amount),
+      actualAmount: r.actualAmount != null ? Number(r.actualAmount) : null,
+    });
+  }
+  return result;
 }
