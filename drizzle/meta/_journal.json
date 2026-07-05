@@ -15,6 +15,13 @@
       "when": 1751673600000,
       "tag": "0001_ai_category_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1751846400000,
+      "tag": "0002_user_merchant_rules",
+      "breakpoints": true
     }
   ]
 }

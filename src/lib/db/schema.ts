@@ -432,3 +432,23 @@ export const aiCategoryCache = pgTable("ai_category_cache", {
   provider: text("provider").notNull().default("anthropic"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// User-defined rules for resolving ambiguous aggregator transactions.
+// When an Instacart (or similar) bank descriptor carries no sub-store name,
+// the user can clarify once and the answer is stored here and applied to all
+// matching transactions (past and future).
+// rawPattern is the exact Plaid transaction `name`, matched case-insensitively.
+export const userMerchantRules = pgTable(
+  "user_merchant_rules",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id").notNull(),
+    rawPattern: text("raw_pattern").notNull(),
+    destination: text("destination").notNull(),
+    channel: text("channel").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("umr_user_pattern_uq").on(t.userId, t.rawPattern),
+  ],
+);
