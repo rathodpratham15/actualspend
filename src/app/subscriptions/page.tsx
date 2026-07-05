@@ -302,6 +302,7 @@ function RecurringRow({ sub }: { sub: SubscriptionRow }) {
               <Calendar className="h-2.5 w-2.5" strokeWidth={1.5} />
               {shortDate(sub.lastSeen)}
             </span>
+            <span className="opacity-60">{sub.accountLabel}</span>
           </div>
         </div>
       </div>

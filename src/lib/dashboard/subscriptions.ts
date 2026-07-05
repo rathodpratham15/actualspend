@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { reconciliations, transactions } from "@/lib/db/schema";
+import { plaidItems, reconciliations, transactions } from "@/lib/db/schema";
 import { RECONCILIATION_TYPES } from "@/lib/reconciliation/types";
 import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 
@@ -8,6 +8,8 @@ import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 export type SubscriptionRow = {
   merchant: string;
   channel: string | null;
+  /** Institution name of the account/card this subscription is charged to. */
+  accountLabel: string | null;
   /** Median actual (reconciled) monthly charge. */
   monthlyActual: number;
   /** Median raw bank charge (before reconciliation). */
@@ -35,6 +37,8 @@ export async function computeSubscriptions(
     .select({
       merchant: sql<string>`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
       channel: transactions.channel,
+      plaidItemId: transactions.plaidItemId,
+      accountLabel: plaidItems.institutionName,
       month: sql<string>`to_char(${transactions.date}::date, 'YYYY-MM')`,
       avgBank: sql<number>`AVG(${transactions.amount}::numeric)::float`,
       avgActual: sql<number>`AVG(COALESCE(${reconciliations.actualAmount}::numeric, ${transactions.amount}::numeric))::float`,
@@ -42,6 +46,7 @@ export async function computeSubscriptions(
       isShared: sql<boolean>`bool_or(${reconciliations.reconciliationType} = ${RECONCILIATION_TYPES.FRONTED_SHARED_EXPENSE})`,
     })
     .from(transactions)
+    .innerJoin(plaidItems, eq(plaidItems.id, transactions.plaidItemId))
     .leftJoin(reconciliations, eq(reconciliations.transactionId, transactions.id))
     .where(
       and(
@@ -56,6 +61,8 @@ export async function computeSubscriptions(
     .groupBy(
       sql`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
       transactions.channel,
+      transactions.plaidItemId,
+      plaidItems.institutionName,
       sql`to_char(${transactions.date}::date, 'YYYY-MM')`,
     )
     .orderBy(
@@ -63,18 +70,24 @@ export async function computeSubscriptions(
       sql`to_char(${transactions.date}::date, 'YYYY-MM')`,
     );
 
-  type MerchantEntry = {
+  type AccountEntry = {
+    merchant: string;
     channel: string | null;
+    accountLabel: string | null;
     months: Map<string, { bank: number; actual: number }>;
     lastSeen: string;
     isShared: boolean;
   };
 
-  const byMerchant = new Map<string, MerchantEntry>();
+  // Key = merchant + plaidItemId so the same merchant on two different cards
+  // (e.g. Visible on credit card vs Visible fronted on debit card) stay separate.
+  const byAccount = new Map<string, AccountEntry>();
   for (const r of rows) {
-    const key = r.merchant;
-    const entry = byMerchant.get(key) ?? {
+    const key = `${r.merchant}|||${r.plaidItemId}`;
+    const entry = byAccount.get(key) ?? {
+      merchant: r.merchant,
       channel: r.channel,
+      accountLabel: r.accountLabel,
       months: new Map(),
       lastSeen: r.lastSeen,
       isShared: false,
@@ -85,12 +98,12 @@ export async function computeSubscriptions(
     });
     if (r.lastSeen > entry.lastSeen) entry.lastSeen = r.lastSeen;
     if (r.isShared) entry.isShared = true;
-    byMerchant.set(key, entry);
+    byAccount.set(key, entry);
   }
 
   const results: SubscriptionRow[] = [];
 
-  for (const [merchant, entry] of byMerchant) {
+  for (const entry of byAccount.values()) {
     if (entry.months.size < 3) continue;
 
     const bankAmounts = [...entry.months.values()].map((m) => m.bank);
@@ -107,8 +120,9 @@ export async function computeSubscriptions(
     const mid = Math.floor(bankSorted.length / 2);
 
     results.push({
-      merchant,
+      merchant: entry.merchant,
       channel: entry.channel,
+      accountLabel: entry.accountLabel,
       monthlyActual: actualSorted[mid],
       monthlyBank: bankSorted[mid],
       isShared: entry.isShared,
