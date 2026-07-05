@@ -6,7 +6,7 @@ import {
 } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { plaid } from "./client";
-import { toCanonical } from "./categorize";
+import { resolveCategory } from "./ai-categorize";
 import { normalizeEffectiveMerchant } from "./merchant-normalize";
 import { decryptSecret } from "@/lib/crypto";
 
@@ -78,7 +78,7 @@ export async function runPlaidSync(
               effectiveMerchant: norm?.destination ?? null,
               channel: norm?.channel ?? null,
               plaidCategory: pfc,
-              canonicalCategory: toCanonical(pfc),
+              canonicalCategory: await resolveCategory(pfc, t.merchant_name ?? t.name),
               pending: t.pending,
             })
             .onConflictDoNothing();
@@ -100,7 +100,7 @@ export async function runPlaidSync(
               effectiveMerchant: norm?.destination ?? null,
               channel: norm?.channel ?? null,
               plaidCategory: pfc,
-              canonicalCategory: toCanonical(pfc),
+              canonicalCategory: await resolveCategory(pfc, t.merchant_name ?? t.name),
               pending: t.pending,
             })
             .where(eq(transactions.plaidTransactionId, t.transaction_id));

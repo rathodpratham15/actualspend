@@ -422,3 +422,13 @@ export const reconciliations = pgTable(
       ),
   ],
 );
+
+// Cache for AI-assigned canonical categories.
+// Keyed by `${merchantName.toLowerCase()}::${plaid_detailed_category}` so
+// repeated transactions at the same merchant never hit the model twice.
+export const aiCategoryCache = pgTable("ai_category_cache", {
+  cacheKey: text("cache_key").primaryKey(),
+  canonicalCategory: text("canonical_category").notNull(),
+  provider: text("provider").notNull().default("anthropic"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
