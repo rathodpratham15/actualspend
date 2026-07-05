@@ -1,7 +1,13 @@
 import { db } from "@/lib/db";
 import { reconciliations, transactions } from "@/lib/db/schema";
 import { RECONCILIATION_TYPES } from "@/lib/reconciliation/types";
-import { and, eq, gte, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
+
+// ── Shared filter ─────────────────────────────────────────────────────────────
+
+const EXCLUDED_CATEGORIES = `(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('CC_PAYMENT', 'INCOME', 'REIMBURSEMENT', 'TRANSFER'))`;
+
+// ── Subscription detection ────────────────────────────────────────────────────
 
 export type SubscriptionRow = {
   merchant: string;
@@ -12,7 +18,7 @@ export type SubscriptionRow = {
   monthlyBank: number;
   /** True if any charge is reconciled as a shared/fronted expense. */
   isShared: boolean;
-  /** Number of months this merchant has appeared in (up to 12). */
+  /** Number of months this merchant has appeared in (up to lookback window). */
   monthsActive: number;
   /** Most recent charge date (ISO string). */
   lastSeen: string;
@@ -20,16 +26,15 @@ export type SubscriptionRow = {
   monthlyAmounts: { month: string; actual: number }[];
 };
 
-// Detect subscriptions over the last 12 calendar months.
+// Detect subscriptions over a date range.
 // A subscription is any merchant that:
-//   - appears in 3+ distinct months
+//   - appears in 3+ distinct months within the range
 //   - has raw bank charges within ±20% of each other across those months
-export async function computeSubscriptions(userId: string): Promise<SubscriptionRow[]> {
-  const cutoffDate = new Date();
-  cutoffDate.setMonth(cutoffDate.getMonth() - 12);
-  const cutoff = cutoffDate.toISOString().slice(0, 10);
-
-  // Per-merchant, per-month aggregates including reconciled actual amounts.
+export async function computeSubscriptions(
+  userId: string,
+  from: string,
+  to: string,
+): Promise<SubscriptionRow[]> {
   const rows = await db
     .select({
       merchant: sql<string>`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
@@ -46,9 +51,10 @@ export async function computeSubscriptions(userId: string): Promise<Subscription
       and(
         eq(transactions.userId, userId),
         isNull(transactions.deletedAt),
-        gte(transactions.date, cutoff),
+        gte(transactions.date, from),
+        lte(transactions.date, to),
         sql`${transactions.amount}::numeric > 0`,
-        sql`(${transactions.canonicalCategory} IS NULL OR ${transactions.canonicalCategory} NOT IN ('CC_PAYMENT', 'INCOME', 'REIMBURSEMENT', 'TRANSFER'))`,
+        sql`${EXCLUDED_CATEGORIES}`,
       ),
     )
     .groupBy(
@@ -61,7 +67,6 @@ export async function computeSubscriptions(userId: string): Promise<Subscription
       sql`to_char(${transactions.date}::date, 'YYYY-MM')`,
     );
 
-  // Group by merchant.
   type MerchantEntry = {
     channel: string | null;
     months: Map<string, { bank: number; actual: number }>;
@@ -95,14 +100,11 @@ export async function computeSubscriptions(userId: string): Promise<Subscription
     const bankAmounts = [...entry.months.values()].map((m) => m.bank);
     const minBank = Math.min(...bankAmounts);
     const maxBank = Math.max(...bankAmounts);
-
-    // Skip if bank charges vary by more than 20% — not a stable subscription.
     if (minBank <= 0 || (maxBank - minBank) / minBank > 0.2) continue;
 
     const sortedMonths = [...entry.months.entries()].sort(([a], [b]) =>
       a.localeCompare(b),
     );
-
     const actualAmounts = sortedMonths.map(([, v]) => v.actual);
     const bankSorted = [...bankAmounts].sort((a, b) => a - b);
     const actualSorted = [...actualAmounts].sort((a, b) => a - b);
@@ -116,7 +118,6 @@ export async function computeSubscriptions(userId: string): Promise<Subscription
       isShared: entry.isShared,
       monthsActive: entry.months.size,
       lastSeen: entry.lastSeen,
-      // Last 6 months for the sparkline.
       monthlyAmounts: sortedMonths.slice(-6).map(([month, v]) => ({
         month,
         actual: v.actual,
@@ -124,6 +125,64 @@ export async function computeSubscriptions(userId: string): Promise<Subscription
     });
   }
 
-  // Sort by monthly actual cost descending.
   return results.sort((a, b) => b.monthlyActual - a.monthlyActual);
+}
+
+// ── Card exposure ("all places") ──────────────────────────────────────────────
+
+export type CardExposureRow = {
+  merchant: string;
+  channel: string | null;
+  firstSeen: string;
+  lastSeen: string;
+  txnCount: number;
+  totalActual: number;
+  isRecurring: boolean;
+};
+
+// All distinct merchants that charged the user within [from, to].
+// Pass the set of recurring merchant names (from computeSubscriptions) so each
+// row can be flagged without a second join.
+export async function computeCardExposure(
+  userId: string,
+  from: string,
+  to: string,
+  recurringMerchants: Set<string>,
+): Promise<CardExposureRow[]> {
+  const rows = await db
+    .select({
+      merchant: sql<string>`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
+      channel: transactions.channel,
+      firstSeen: sql<string>`MIN(${transactions.date})`,
+      lastSeen: sql<string>`MAX(${transactions.date})`,
+      txnCount: sql<number>`COUNT(*)::int`,
+      totalActual: sql<number>`SUM(COALESCE(${reconciliations.actualAmount}::numeric, ${transactions.amount}::numeric))::float`,
+    })
+    .from(transactions)
+    .leftJoin(reconciliations, eq(reconciliations.transactionId, transactions.id))
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        isNull(transactions.deletedAt),
+        gte(transactions.date, from),
+        lte(transactions.date, to),
+        sql`${transactions.amount}::numeric > 0`,
+        sql`${EXCLUDED_CATEGORIES}`,
+      ),
+    )
+    .groupBy(
+      sql`COALESCE(${transactions.effectiveMerchant}, ${transactions.merchantName}, ${transactions.name})`,
+      transactions.channel,
+    )
+    .orderBy(sql`MAX(${transactions.date}) DESC`);
+
+  return rows.map((r) => ({
+    merchant: r.merchant,
+    channel: r.channel,
+    firstSeen: r.firstSeen,
+    lastSeen: r.lastSeen,
+    txnCount: Number(r.txnCount),
+    totalActual: Number(r.totalActual ?? 0),
+    isRecurring: recurringMerchants.has(r.merchant),
+  }));
 }
