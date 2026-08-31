@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
+import { verifySamlTicket } from "@/lib/auth/saml-ticket";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
@@ -25,10 +26,31 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           .where(eq(users.email, email.toLowerCase().trim()))
           .limit(1);
 
-        if (!user?.passwordHash) return null;
+        if (!user?.passwordHash || user.scimActive === false) return null;
 
         const valid = await bcrypt.compare(password, user.passwordHash);
         if (!valid) return null;
+
+        return { id: user.id, email: user.email, name: user.name };
+      },
+    }),
+    // Bridge provider for SAML SSO — never called directly by users. The
+    // /api/auth/saml/acs handler validates the IdP assertion, then mints a
+    // one-time ticket and calls signIn("saml", { ticket }) in-process. See
+    // src/lib/auth/saml-ticket.ts for why a raw user id can't be trusted here.
+    Credentials({
+      id: "saml",
+      name: "SAML SSO",
+      credentials: { ticket: { label: "Ticket", type: "text" } },
+      async authorize(credentials) {
+        const ticket = credentials?.ticket as string | undefined;
+        if (!ticket) return null;
+
+        const userId = await verifySamlTicket(ticket);
+        if (!userId) return null;
+
+        const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+        if (!user || user.scimActive === false) return null;
 
         return { id: user.id, email: user.email, name: user.name };
       },
@@ -48,6 +70,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         .from(users)
         .where(eq(users.email, user.email))
         .limit(1);
+
+      if (existing?.scimActive === false) return false;
 
       if (existing) {
         if (!existing.image && user.image) {

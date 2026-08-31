@@ -5,6 +5,7 @@ import { AppHeader } from "@/components/app-header";
 import { Logo } from "@/components/logo";
 import { auth, signIn } from "@/lib/auth";
 import { CredentialsForm } from "@/components/credentials-form";
+import { isSamlConfigured } from "@/lib/auth/saml";
 
 const LOGIN_ILLUSTRATION_LIGHT = "/login-illustration-light.svg";
 const LOGIN_ILLUSTRATION_DARK = "/login-illustration.svg";
@@ -23,6 +24,7 @@ function GoogleIcon() {
 export default async function LoginPage() {
   const session = await auth();
   if (session?.user) redirect("/");
+  const samlEnabled = isSamlConfigured();
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -77,6 +79,20 @@ export default async function LoginPage() {
                 Continue with Google
               </button>
             </form>
+
+            {/* SSO (SAML) — only shown once an IdP is configured. prefetch
+                disabled since this is a GET that kicks off the IdP redirect
+                flow, not a page to prefetch. */}
+            {samlEnabled && (
+              <Link
+                href="/api/auth/saml/login"
+                prefetch={false}
+                data-testid="saml-signin-btn"
+                className="mt-3 w-full h-10 inline-flex items-center justify-center gap-3 rounded-md border border-border bg-surface text-sm hover:bg-secondary transition-colors"
+              >
+                Continue with SSO
+              </Link>
+            )}
 
             {/* Divider */}
             <div className="my-5 flex items-center gap-3">
