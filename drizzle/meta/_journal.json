@@ -22,6 +22,13 @@
       "when": 1751846400000,
       "tag": "0002_user_merchant_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788105600000,
+      "tag": "0003_saml_scim_user_fields",
+      "breakpoints": true
     }
   ]
 }

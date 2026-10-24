@@ -33,8 +33,17 @@ export const users = pgTable("user", {
   email: text("email").unique().notNull(),
   emailVerified: timestamp("emailVerified", { mode: "date" }),
   image: text("image"),
-  // Bcrypt hash — null for Google-only accounts.
+  // Bcrypt hash — null for Google-only / SSO-only accounts.
   passwordHash: text("password_hash"),
+  // SAML SSO — set on first SAML login, used to re-match the same IdP subject
+  // on subsequent logins even if email changes upstream.
+  samlNameId: text("saml_name_id"),
+  samlIdp: text("saml_idp"),
+  // SCIM 2.0 provisioning (RFC 7644). externalId is the IdP's own user id;
+  // scimActive mirrors the SCIM "active" attribute — flipping it to false
+  // (via PATCH or DELETE) revokes login without touching financial data.
+  scimExternalId: text("scim_external_id"),
+  scimActive: boolean("scim_active").notNull().default(true),
 });
 
 export const accounts = pgTable(

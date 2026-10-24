@@ -3,9 +3,13 @@ import { auth } from "@/lib/auth";
 // Auth-gating proxy.
 //
 // Pass-through (no auth needed): /login, /welcome, /privacy, /terms,
-// /security, /api/auth/*, /api/plaid/webhook, /api/health,
+// /security, /api/auth/*, /api/plaid/webhook, /api/health, /api/scim/*,
 // Sentry tunnel (/monitoring), public static files (*.svg, etc.), and
 // Next asset routes.
+//
+// /api/scim/* is excluded because it enforces its own SCIM Bearer-token
+// auth (see src/lib/scim.ts) — an IdP provisioning client has no NextAuth
+// session and would otherwise get redirected to /login.
 //
 // Behavior for unauthenticated requests that hit a protected route:
 //   - hitting "/" → redirect to /welcome (marketing front door)
@@ -21,6 +25,6 @@ export default auth((req) => {
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/plaid/webhook|api/health|login|register|forgot-password|reset-password|welcome|privacy|terms|security|_next/static|_next/image|favicon.ico|monitoring|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!api/auth|api/plaid/webhook|api/health|api/scim|login|register|forgot-password|reset-password|welcome|privacy|terms|security|_next/static|_next/image|favicon.ico|monitoring|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
