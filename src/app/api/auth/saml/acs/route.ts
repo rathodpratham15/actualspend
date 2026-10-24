@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { eq, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { extractSamlLogin, getSamlProvider } from "@/lib/auth/saml";
 import { mintSamlTicket } from "@/lib/auth/saml-ticket";
 import { signIn } from "@/lib/auth";
+import { SAML_STATE_COOKIE, verifySamlState } from "@/lib/auth/saml-state";
 
 async function findOrCreateSamlUser(login: ReturnType<typeof extractSamlLogin>) {
   const [existing] = await db
@@ -36,14 +38,26 @@ async function findOrCreateSamlUser(login: ReturnType<typeof extractSamlLogin>) 
 
 // Assertion Consumer Service — the IdP POSTs the SAMLResponse here.
 export async function POST(req: NextRequest) {
-  const saml = getSamlProvider();
-  if (!saml) {
+  if (!getSamlProvider()) {
     return NextResponse.json({ error: "SAML SSO is not configured" }, { status: 501 });
   }
 
+  // The state cookie set at /login binds this response to the browser that
+  // started the flow (InResponseTo check) and carries the trusted destination.
+  // It is single-use: cleared on every outcome below.
+  const stateCookie = req.cookies.get(SAML_STATE_COOKIE)?.value;
+  const state = stateCookie ? await verifySamlState(stateCookie) : null;
+  const fail = (code: string) => {
+    const res = NextResponse.redirect(new URL(`/login?error=${code}`, req.url), 303);
+    res.cookies.delete({ name: SAML_STATE_COOKIE, path: "/api/auth/saml" });
+    return res;
+  };
+  if (!state) return fail("saml_invalid");
+
+  const saml = getSamlProvider({ expectedRequestId: state.requestId })!;
+
   const form = await req.formData();
   const samlResponse = form.get("SAMLResponse");
-  const relayState = form.get("RelayState");
   if (typeof samlResponse !== "string") {
     return NextResponse.json({ error: "Missing SAMLResponse" }, { status: 400 });
   }
@@ -54,25 +68,25 @@ export async function POST(req: NextRequest) {
     profile = result.profile as Record<string, unknown> | null;
   } catch (err) {
     console.error("saml_acs validation error:", err);
-    return NextResponse.redirect(new URL("/login?error=saml_invalid", req.url));
+    return fail("saml_invalid");
   }
 
-  if (!profile) {
-    return NextResponse.redirect(new URL("/login?error=saml_invalid", req.url));
-  }
+  if (!profile) return fail("saml_invalid");
 
   const login = extractSamlLogin(profile);
   if (!login.email) {
-    return NextResponse.redirect(new URL("/login?error=saml_no_email", req.url));
+    return fail("saml_no_email");
   }
 
   const user = await findOrCreateSamlUser(login);
   if (user.scimActive === false) {
-    return NextResponse.redirect(new URL("/login?error=account_disabled", req.url));
+    return fail("account_disabled");
   }
 
   const ticket = await mintSamlTicket(user.id);
-  const redirectTo = typeof relayState === "string" && relayState.startsWith("/") ? relayState : "/";
+  const redirectTo = state.redirectTo;
 
+  // Consume the state cookie before handing off to signIn (which redirects).
+  (await cookies()).delete({ name: SAML_STATE_COOKIE, path: "/api/auth/saml" });
   await signIn("saml", { ticket, redirectTo, redirect: true });
 }

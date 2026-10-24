@@ -1,4 +1,4 @@
-import { SAML, type SamlConfig } from "@node-saml/node-saml";
+import { SAML, ValidateInResponseTo, type CacheProvider, type SamlConfig } from "@node-saml/node-saml";
 
 // SAML 2.0 Service Provider config, read from env. The IdP can be any
 // SAML 2.0-compliant provider (Okta, Azure AD, Google Workspace, etc.) —
@@ -26,8 +26,21 @@ export function isSamlConfigured(): boolean {
   return Boolean(env("SAML_IDP_SSO_URL") && env("SAML_IDP_ENTITY_ID") && env("SAML_IDP_CERT"));
 }
 
-/** Returns a configured SAML SP instance, or null if SSO isn't set up. */
-export function getSamlProvider(): SAML | null {
+/** InResponseTo cache that accepts exactly one id — the one from the caller's state cookie. */
+function singleRequestCache(expectedId: string): CacheProvider {
+  return {
+    saveAsync: async (key, value) => ({ value, createdAt: Date.now() }),
+    getAsync: async (key) => (key === expectedId ? key : null),
+    removeAsync: async (key) => key,
+  };
+}
+
+/**
+ * Returns a configured SAML SP instance, or null if SSO isn't set up.
+ *   requestId          (login)  use this id for the AuthnRequest
+ *   expectedRequestId  (ACS)    require the response's InResponseTo to equal it
+ */
+export function getSamlProvider(opts: { requestId?: string; expectedRequestId?: string } = {}): SAML | null {
   if (!isSamlConfigured()) return null;
 
   const base = baseUrl();
@@ -45,6 +58,13 @@ export function getSamlProvider(): SAML | null {
     signatureAlgorithm: "sha256",
     digestAlgorithm: "sha256",
     identifierFormat: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+    ...(opts.requestId ? { generateUniqueId: () => opts.requestId! } : {}),
+    ...(opts.expectedRequestId
+      ? {
+          validateInResponseTo: ValidateInResponseTo.always,
+          cacheProvider: singleRequestCache(opts.expectedRequestId),
+        }
+      : {}),
     ...(spPrivateKey ? { privateKey: spPrivateKey } : {}),
     ...(spCert ? { publicCert: spCert } : {}),
   };
